@@ -40,8 +40,8 @@ struct PrintFunMetadata : public FunctionPass {
 
     virtual bool runOnFunction(Function& f) {
         errs() << "{\n"
-               << "  fname: \"" << f.getName() << "\",\n"
-               << "  blocks: [\n";
+               << "  fun-name: \"" << f.getName() << "\",\n"
+               << "  block-freqs: [\n";
 
         BFI = &getAnalysis<BlockFrequencyInfo>();
         for (Function::iterator i = f.begin(); i != f.end(); ++i) {
