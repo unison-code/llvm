@@ -38,7 +38,8 @@ struct AttachFunMetadata : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
     AttachFunMetadata() : FunctionPass(ID) {}
 
-    virtual bool runOnFunction(Function& f) {
+    virtual bool
+    runOnFunction(Function& f) {
         errs() << "{\n"
                << "  fun-name: \"" << f.getName() << "\",\n"
                << "  block-freqs: [\n";
@@ -58,17 +59,26 @@ struct AttachFunMetadata : public FunctionPass {
     }
 
     // We don't modify the program, so we preserve all analyses.
-    virtual void getAnalysisUsage(AnalysisUsage& AU) const {
+    virtual void
+    getAnalysisUsage(AnalysisUsage& AU) const {
         AU.setPreservesAll();
         AU.addRequired<BlockFrequencyInfo>();
     }
 
   protected:
     /// Invoked on every basic block inside the function.
-    void runOnBasicBlock(BasicBlock& bb) {
+    void
+    runOnBasicBlock(BasicBlock& bb) {
         errs() << "[ \"" << bb.getName()
-               << "\", " << BFI->getBlockFreq(&bb).getFrequency() / BlockFrequency::getEntryFrequency()
+               << "\", " << getBlockFreq(bb)
                << " ]";
+    }
+
+    /// Gets the block frequency as an integer.
+    uint64_t
+    getBlockFreq(BasicBlock& bb) {
+        return BFI->getBlockFreq(&bb).getFrequency() /
+               BlockFrequency::getEntryFrequency();
     }
 
   private:
