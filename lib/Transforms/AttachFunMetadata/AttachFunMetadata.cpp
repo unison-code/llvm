@@ -27,7 +27,10 @@
 
 #define DEBUG_TYPE "attachfunmetadata"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
@@ -40,20 +43,10 @@ struct AttachFunMetadata : public FunctionPass {
 
     virtual bool
     runOnFunction(Function& f) {
-        errs() << "{\n"
-               << "  fun-name: \"" << f.getName() << "\",\n"
-               << "  block-freqs: [\n";
-
         BFI = &getAnalysis<BlockFrequencyInfo>();
-        for (Function::iterator i = f.begin(); i != f.end(); ++i) {
-            errs() << "    ";
+        for (Function::iterator i = f.begin(), e = f.end(); i != e; ++i) {
             runOnBasicBlock(*i);
-            if (i != --f.end()) errs() << ",";
-            errs() << "\n";
         }
-
-        errs() << "  ]\n"
-               << "}\n";
 
         return false;
     }
@@ -69,9 +62,17 @@ struct AttachFunMetadata : public FunctionPass {
     /// Invoked on every basic block inside the function.
     void
     runOnBasicBlock(BasicBlock& bb) {
-        errs() << "[ \"" << bb.getName()
-               << "\", " << getBlockFreq(bb)
-               << " ]";
+        bb.getTerminator()->setMetadata("exec_freq", getBlockFreqMetadata(bb));
+    }
+
+    /// Produces basic block frequency information as metadata.
+    MDNode*
+    getBlockFreqMetadata(BasicBlock& bb) {
+        Value* freq_value =
+            ConstantInt::get(IntegerType::get(bb.getContext(), 64),
+                             getBlockFreq(bb),
+                             false);
+        return MDNode::get(bb.getContext(), ArrayRef<Value*>(freq_value));
     }
 
     /// Gets the block frequency as an integer.
