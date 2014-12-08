@@ -23,7 +23,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 LEVEL = ../../..
-LIBRARYNAME = AttachFunMetadata
+LIBRARYNAME = AttachExecFreqMetadata
 LOADABLE_MODULE = 1
 USEDLIBS =
 
@@ -31,7 +31,7 @@ USEDLIBS =
 # from the hello plugin.
 ifneq ($(REQUIRES_RTTI), 1)
 ifneq ($(REQUIRES_EH), 1)
-EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/AttachFunMetadata.exports
+EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/AttachExecFreqMetadata.exports
 endif
 endif
 

@@ -37,9 +37,9 @@ using namespace llvm;
 
 namespace {
 
-struct AttachFunMetadata : public FunctionPass {
+struct AttachExecFreqMetadata : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
-    AttachFunMetadata() : FunctionPass(ID) {}
+    AttachExecFreqMetadata() : FunctionPass(ID) {}
 
     virtual bool
     runOnFunction(Function& f) {
@@ -89,6 +89,6 @@ struct AttachFunMetadata : public FunctionPass {
 
 }
 
-char AttachFunMetadata::ID = 0;
-static RegisterPass<AttachFunMetadata>
-CP("attach-fun-metadata", "AttachFunMetadata Pass");
+char AttachExecFreqMetadata::ID = 0;
+static RegisterPass<AttachExecFreqMetadata>
+CP("attach-exec-freq-metadata", "AttachExecFreqMetadata Pass");
