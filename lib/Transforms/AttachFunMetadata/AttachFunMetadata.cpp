@@ -25,7 +25,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define DEBUG_TYPE "printfunmetadata"
+#define DEBUG_TYPE "attachfunmetadata"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Pass.h"
@@ -34,9 +34,9 @@ using namespace llvm;
 
 namespace {
 
-struct PrintFunMetadata : public FunctionPass {
+struct AttachFunMetadata : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
-    PrintFunMetadata() : FunctionPass(ID) {}
+    AttachFunMetadata() : FunctionPass(ID) {}
 
     virtual bool runOnFunction(Function& f) {
         errs() << "{\n"
@@ -67,7 +67,7 @@ struct PrintFunMetadata : public FunctionPass {
     /// Invoked on every basic block inside the function.
     void runOnBasicBlock(BasicBlock& bb) {
         errs() << "[ \"" << bb.getName()
-               << "\", " << BFI->getBlockFreq(&bb)
+               << "\", " << BFI->getBlockFreq(&bb).getFrequency() / BlockFrequency::getEntryFrequency()
                << " ]";
     }
 
@@ -78,6 +78,6 @@ struct PrintFunMetadata : public FunctionPass {
 
 }
 
-char PrintFunMetadata::ID = 0;
-static RegisterPass<PrintFunMetadata>
-CP("print-fun-metadata", "PrintFunMetadata Pass");
+char AttachFunMetadata::ID = 0;
+static RegisterPass<AttachFunMetadata>
+CP("attach-fun-metadata", "AttachFunMetadata Pass");
