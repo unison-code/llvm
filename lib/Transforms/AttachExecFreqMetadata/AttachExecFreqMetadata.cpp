@@ -78,8 +78,7 @@ struct AttachExecFreqMetadata : public FunctionPass {
     /// Gets the block frequency as an integer.
     uint64_t
     getBlockFreq(BasicBlock& bb) {
-        return BFI->getBlockFreq(&bb).getFrequency() /
-               BlockFrequency::getEntryFrequency();
+      return BFI->getBlockFreq(&bb).getFrequency();
     }
 
   private:
