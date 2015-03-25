@@ -49,37 +49,43 @@ namespace {
       for (Function::iterator BB = F.begin(), E = F.end(); BB != E; ++BB)
         for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
           if (SelectInst *SI = dyn_cast<SelectInst>(I)) {
-            // Split this basic block in half right before the select instruction.
-            BasicBlock *NewCont =
-              BB->splitBasicBlock(I, BB->getName()+".selectcont");
+            if (SI->getCondition()->getType()->isIntegerTy(1)) {
+              // Lower only scalar select constructs
 
-            // Make the true block, and make it branch to the continue block.
-            BasicBlock *NewTrue =
-              BasicBlock::Create(SI->getContext(), BB->getName()+".selecttrue",
-                                 BB->getParent(), NewCont);
+              // Split this basic block in half right before the select
+              // instruction.
+              BasicBlock *NewCont =
+                BB->splitBasicBlock(I, BB->getName()+".selectcont");
 
-            //new BranchInst(NewCont, NewTrue);
+              // Make the true block, and make it branch to the continue block.
+              BasicBlock *NewTrue =
+                BasicBlock::Create(SI->getContext(),
+                                   BB->getName()+".selecttrue",
+                                   BB->getParent(), NewCont);
 
-            BranchInst::Create(NewCont, NewTrue);
+              BranchInst::Create(NewCont, NewTrue);
 
-            // Make the unconditional branch in the incoming block be a
-            // conditional branch on the select predicate.
-            BB->getInstList().erase(BB->getTerminator());
-            //new BranchInst(
-            BranchInst::Create(NewTrue, NewCont, SI->getCondition(), BB);
+              // Make the unconditional branch in the incoming block be a
+              // conditional branch on the select predicate.
+              BB->getInstList().erase(BB->getTerminator());
 
-            // Create a new PHI node in the cont block with the entries we need.
-            PHINode *PN = PHINode::Create(SI->getType(), 0, "", NewCont->begin());
-            PN->takeName(SI);
-            PN->addIncoming(SI->getTrueValue(), NewTrue);
-            PN->addIncoming(SI->getFalseValue(), BB);
+              BranchInst::Create(NewTrue, NewCont, SI->getCondition(), BB);
 
-            // Use the PHI instead of the select.
-            SI->replaceAllUsesWith(PN);
-            NewCont->getInstList().erase(SI);
+              // Create a new PHI node in the cont block with the entries we
+              // need.
+              PHINode *PN =
+                PHINode::Create(SI->getType(), 0, "", NewCont->begin());
+              PN->takeName(SI);
+              PN->addIncoming(SI->getTrueValue(), NewTrue);
+              PN->addIncoming(SI->getFalseValue(), BB);
 
-            Changed = true;
-            break; // This block is done with.
+              // Use the PHI instead of the select.
+              SI->replaceAllUsesWith(PN);
+              NewCont->getInstList().erase(SI);
+
+              Changed = true;
+              break; // This block is done with.
+            }
           }
         }
       return Changed;
