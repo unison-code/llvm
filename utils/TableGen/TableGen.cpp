@@ -42,6 +42,7 @@ enum ActionType {
   PrintEnums,
   PrintSets,
   GenOptParserDefs,
+  GenISelCosts,
   GenCTags,
   GenAttributes
 };
@@ -85,6 +86,8 @@ namespace {
                                "Print expanded sets for testing DAG exprs"),
                     clEnumValN(GenOptParserDefs, "gen-opt-parser-defs",
                                "Generate option definitions"),
+                    clEnumValN(GenISelCosts, "gen-isel-costs",
+                               "Generate pattern costs for instruction selection"),
                     clEnumValN(GenCTags, "gen-ctags",
                                "Generate ctags-compatible index"),
                     clEnumValN(GenAttributes, "gen-attrs",
@@ -144,6 +147,9 @@ bool LLVMTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
     break;
   case GenOptParserDefs:
     EmitOptParser(Records, OS);
+    break;
+  case GenISelCosts:
+    EmitISelCosts(Records, OS);
     break;
   case PrintEnums:
   {

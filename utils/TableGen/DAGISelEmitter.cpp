@@ -29,6 +29,13 @@ public:
   explicit DAGISelEmitter(RecordKeeper &R) : CGP(R) {}
   void run(raw_ostream &OS);
 };
+
+class ISelCostsEmitter {
+  CodeGenDAGPatterns CGP;
+public:
+  explicit ISelCostsEmitter(RecordKeeper &R) : CGP(R) {}
+  void run(raw_ostream &OS);
+};
 } // End anonymous namespace
 
 //===----------------------------------------------------------------------===//
@@ -165,10 +172,38 @@ void DAGISelEmitter::run(raw_ostream &OS) {
   EmitMatcherTable(TheMatcher.get(), CGP, OS);
 }
 
+
+void ISelCostsEmitter::run(raw_ostream &OS) {
+
+  std::vector<const PatternToMatch*> Patterns;
+  for (CodeGenDAGPatterns::ptm_iterator I = CGP.ptm_begin(), E = CGP.ptm_end();
+       I != E; ++I)
+    Patterns.push_back(&*I);
+  std::sort(Patterns.begin(), Patterns.end(), PatternSortingPredicate(CGP));
+
+  for (unsigned i = 0, e = Patterns.size(); i != e; ++i) {
+    const PatternToMatch * P = Patterns[i];
+    const TreePatternNode *Src = P->getSrcPattern();
+    MVT VT = (Src->getNumTypes() != 0 ? Src->getType(0) : MVT::Other);
+    OS << P->getSrcRecord()->getName() << ": ("
+       << VT.isVector() << ","
+       << VT.isFloatingPoint() << ","
+       << P->getPatternComplexity(CGP) << ","
+       << getResultPatternCost(P->getDstPattern(), CGP) << ","
+       << getResultPatternSize(P->getDstPattern(), CGP)
+       << ")\n";
+  }
+}
+
+
 namespace llvm {
 
 void EmitDAGISel(RecordKeeper &RK, raw_ostream &OS) {
   DAGISelEmitter(RK).run(OS);
+}
+
+void EmitISelCosts(RecordKeeper &RK, raw_ostream &OS) {
+  ISelCostsEmitter(RK).run(OS);
 }
 
 } // End llvm namespace
