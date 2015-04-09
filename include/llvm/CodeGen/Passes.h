@@ -614,6 +614,10 @@ namespace llvm {
   /// pointer or stack pointer index addressing.
   extern char &LocalStackSlotAllocationID;
 
+  /// ISelCost - This pass computes and prints the cost of instruction
+  /// selection.
+  extern char &ISelCostID;
+
   /// ExpandISelPseudos - This pass expands pseudo-instructions.
   extern char &ExpandISelPseudosID;
 

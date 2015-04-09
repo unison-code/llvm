@@ -130,6 +130,7 @@ void initializeDataFlowSanitizerPass(PassRegistry&);
 void initializeScalarizerPass(PassRegistry&);
 void initializeEarlyCSELegacyPassPass(PassRegistry &);
 void initializeEliminateAvailableExternallyPass(PassRegistry&);
+void initializeISelCostPass(PassRegistry&);
 void initializeExpandISelPseudosPass(PassRegistry&);
 void initializeForceFunctionAttrsLegacyPassPass(PassRegistry&);
 void initializeGCMachineCodeAnalysisPass(PassRegistry&);

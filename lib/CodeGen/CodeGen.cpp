@@ -33,6 +33,7 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeGCMachineCodeAnalysisPass(Registry);
   initializeGCModuleInfoPass(Registry);
   initializeIfConverterPass(Registry);
+  initializeISelCostPass(Registry);
   initializeLiveDebugVariablesPass(Registry);
   initializeLiveIntervalsPass(Registry);
   initializeLiveStacksPass(Registry);

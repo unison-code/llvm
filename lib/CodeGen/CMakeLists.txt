@@ -39,6 +39,7 @@ add_llvm_library(LLVMCodeGen
   InterferenceCache.cpp
   InterleavedAccessPass.cpp
   IntrinsicLowering.cpp
+  ISelCost.cpp
   LLVMTargetMachine.cpp
   LatencyPriorityQueue.cpp
   LexicalScopes.cpp

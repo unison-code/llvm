@@ -93,6 +93,8 @@ static cl::opt<std::string>
 PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
                    cl::desc("Print machine instrs"),
                    cl::value_desc("pass-name"), cl::init("option-unspecified"));
+static cl::opt<bool> PrintISelCost("print-isel-cost", cl::Hidden,
+    cl::desc("Print cost of instruction selection"));
 
 // Temporary option to allow experimenting with MachineScheduler as a post-RA
 // scheduler. Targets can "properly" enable this with
@@ -529,6 +531,9 @@ void TargetPassConfig::addMachinePasses() {
 
   // Print the instruction selected machine code...
   printAndVerify("After Instruction Selection");
+
+  if (PrintISelCost)
+    addPass(&ISelCostID);
 
   // Expand pseudo-instructions emitted by ISel.
   addPass(&ExpandISelPseudosID);
