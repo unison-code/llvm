@@ -506,6 +506,10 @@ namespace llvm {
   /// into tails of their predecessors.
   extern char &TailDuplicateID;
 
+  /// TrivialBranchFolding -- Remove terminators that just branch to the fall
+  /// through block.
+  extern char &TrivialBranchFoldingID;
+
   /// MachineTraceMetrics - This pass computes critical path and CPU resource
   /// usage in an ensemble of traces.
   extern char &MachineTraceMetricsID;

@@ -40,6 +40,8 @@ static cl::opt<bool> DisableBranchFold("disable-branch-fold", cl::Hidden,
     cl::desc("Disable branch folding"));
 static cl::opt<bool> DisableTailDuplicate("disable-tail-duplicate", cl::Hidden,
     cl::desc("Disable tail duplication"));
+static cl::opt<bool> DisableTrivialBranchFolding("disable-trivial-branch-folding",
+                     cl::Hidden, cl::desc("Disable Trivial Branch Folding"));
 static cl::opt<bool> DisableEarlyTailDup("disable-early-taildup", cl::Hidden,
     cl::desc("Disable pre-register allocation tail duplication"));
 static cl::opt<bool> DisableBlockPlacement("disable-block-placement",
@@ -145,6 +147,9 @@ static IdentifyingPassPtr overridePass(AnalysisID StandardID,
 
   if (StandardID == &TailDuplicateID)
     return applyDisable(TargetID, DisableTailDuplicate);
+
+  if (StandardID == &TrivialBranchFoldingID)
+    return applyDisable(TargetID, DisableTrivialBranchFolding);
 
   if (StandardID == &TargetPassConfig::EarlyTailDuplicateID)
     return applyDisable(TargetID, DisableEarlyTailDup);
@@ -531,6 +536,8 @@ void TargetPassConfig::addMachinePasses() {
 
   // Print the instruction selected machine code...
   printAndVerify("After Instruction Selection");
+
+  addPass(&TrivialBranchFoldingID);
 
   if (PrintISelCost)
     addPass(&ISelCostID);

@@ -73,6 +73,7 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeStackSlotColoringPass(Registry);
   initializeTailDuplicatePassPass(Registry);
   initializeTargetPassConfigPass(Registry);
+  initializeTrivialBranchFoldingPass(Registry);
   initializeTwoAddressInstructionPassPass(Registry);
   initializeUnpackMachineBundlesPass(Registry);
   initializeUnreachableBlockElimPass(Registry);

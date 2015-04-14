@@ -129,6 +129,7 @@ add_llvm_library(LLVMCodeGen
   TargetOptionsImpl.cpp
   TargetRegisterInfo.cpp
   TargetSchedule.cpp
+  TrivialBranchFolding.cpp
   TwoAddressInstructionPass.cpp
   UnreachableBlockElim.cpp
   VirtRegMap.cpp
