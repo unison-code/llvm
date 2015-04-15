@@ -369,13 +369,15 @@ StringRef MachineFunction::getName() const {
 }
 
 void MachineFunction::print(raw_ostream &OS, SlotIndexes *Indexes) const {
-  OS << "# Machine code for function " << getName() << ": ";
-  if (RegInfo) {
-    OS << (RegInfo->isSSA() ? "SSA" : "Post SSA");
-    if (!RegInfo->tracksLiveness())
-      OS << ", not tracking liveness";
+  if (getTarget().Options.PrintMachineCode) {
+    OS << "# Machine code for function " << getName() << ": ";
+    if (RegInfo) {
+      OS << (RegInfo->isSSA() ? "SSA" : "Post SSA");
+      if (!RegInfo->tracksLiveness())
+        OS << ", not tracking liveness";
+    }
+    OS << '\n';
   }
-  OS << '\n';
 
   // Print Frame Information
   FrameInfo->print(*this, OS);
@@ -389,17 +391,19 @@ void MachineFunction::print(raw_ostream &OS, SlotIndexes *Indexes) const {
 
   const TargetRegisterInfo *TRI = getSubtarget().getRegisterInfo();
 
-  if (RegInfo && !RegInfo->livein_empty()) {
-    OS << "Function Live Ins: ";
-    for (MachineRegisterInfo::livein_iterator
-         I = RegInfo->livein_begin(), E = RegInfo->livein_end(); I != E; ++I) {
-      OS << PrintReg(I->first, TRI);
-      if (I->second)
-        OS << " in " << PrintReg(I->second, TRI);
-      if (std::next(I) != E)
-        OS << ", ";
+  if (getTarget().Options.PrintMachineCode) {
+    if (RegInfo && !RegInfo->livein_empty()) {
+      OS << "Function Live Ins: ";
+      for (MachineRegisterInfo::livein_iterator
+           I = RegInfo->livein_begin(), E = RegInfo->livein_end(); I != E; ++I) {
+        OS << PrintReg(I->first, TRI);
+        if (I->second)
+          OS << " in " << PrintReg(I->second, TRI);
+        if (std::next(I) != E)
+          OS << ", ";
+      }
+      OS << '\n';
     }
-    OS << '\n';
   }
 
   ModuleSlotTracker MST(getFunction()->getParent());
@@ -409,7 +413,9 @@ void MachineFunction::print(raw_ostream &OS, SlotIndexes *Indexes) const {
     BB.print(OS, MST, Indexes);
   }
 
-  OS << "\n# End machine code for function " << getName() << ".\n\n";
+  if (getTarget().Options.PrintMachineCode) {
+    OS << "\n# End machine code for function " << getName() << ".\n\n";
+  }
 }
 
 namespace llvm {

@@ -315,6 +315,8 @@ void MachineOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
   case MachineOperand::MO_Register:
     OS << PrintReg(getReg(), TRI, getSubReg());
 
+    if (!(TM->Options.PrintMachineCode)) break;
+
     if (isDef() || isKill() || isDead() || isImplicit() || isUndef() ||
         isInternalRead() || isEarlyClobber() || isTied()) {
       OS << '<';
@@ -1778,6 +1780,11 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
       AsmDescOp += 1 + InlineAsm::getNumOperandRegisters(Flag);
     } else
       MO.print(OS, MST, TRI);
+  }
+
+  if (!(TM->Options.PrintMachineCode)) {
+    OS << '\n';
+    return;
   }
 
   // Briefly indicate whether any call clobbers were omitted.

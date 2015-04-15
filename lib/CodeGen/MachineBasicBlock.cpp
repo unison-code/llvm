@@ -282,24 +282,29 @@ void MachineBasicBlock::print(raw_ostream &OS, ModuleSlotTracker &MST,
 
   OS << '\n';
 
-  const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
-  if (!livein_empty()) {
-    if (Indexes) OS << '\t';
-    OS << "    Live Ins:";
-    for (const auto &LI : make_range(livein_begin(), livein_end())) {
-      OS << ' ' << PrintReg(LI.PhysReg, TRI);
-      if (LI.LaneMask != ~0u)
-        OS << ':' << PrintLaneMask(LI.LaneMask);
+  if (MF->getTarget().Options.PrintMachineCode) {
+    const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
+    if (!livein_empty()) {
+      if (Indexes) OS << '\t';
+      OS << "    Live Ins:";
+      for (const auto &LI : make_range(livein_begin(), livein_end())) {
+        OS << ' ' << PrintReg(LI.PhysReg, TRI);
+        if (LI.LaneMask != ~0u)
+          OS << ':' << PrintLaneMask(LI.LaneMask);
+      }
+      OS << '\n';
     }
-    OS << '\n';
   }
-  // Print the preds of this block according to the CFG.
-  if (!pred_empty()) {
-    if (Indexes) OS << '\t';
-    OS << "    Predecessors according to CFG:";
-    for (const_pred_iterator PI = pred_begin(), E = pred_end(); PI != E; ++PI)
-      OS << " BB#" << (*PI)->getNumber();
-    OS << '\n';
+
+  if (MF->getTarget().Options.PrintMachineCode) {
+    // Print the preds of this block according to the CFG.
+    if (!pred_empty()) {
+      if (Indexes) OS << '\t';
+      OS << "    Predecessors according to CFG:";
+      for (const_pred_iterator PI = pred_begin(), E = pred_end(); PI != E; ++PI)
+        OS << " BB#" << (*PI)->getNumber();
+      OS << '\n';
+    }
   }
 
   for (const_instr_iterator I = instr_begin(); I != instr_end(); ++I) {
@@ -314,16 +319,18 @@ void MachineBasicBlock::print(raw_ostream &OS, ModuleSlotTracker &MST,
     I->print(OS, MST);
   }
 
-  // Print the successors of this block according to the CFG.
-  if (!succ_empty()) {
-    if (Indexes) OS << '\t';
-    OS << "    Successors according to CFG:";
-    for (const_succ_iterator SI = succ_begin(), E = succ_end(); SI != E; ++SI) {
-      OS << " BB#" << (*SI)->getNumber();
-      if (!Probs.empty())
-        OS << '(' << *getProbabilityIterator(SI) << ')';
+  if (MF->getTarget().Options.PrintMachineCode) {
+    // Print the successors of this block according to the CFG.
+    if (!succ_empty()) {
+      if (Indexes) OS << '\t';
+      OS << "    Successors according to CFG:";
+      for (const_succ_iterator SI = succ_begin(), E = succ_end(); SI != E; ++SI) {
+        OS << " BB#" << (*SI)->getNumber();
+        if (!Probs.empty())
+          OS << '(' << *getProbabilityIterator(SI) << ')';
+      }
+      OS << '\n';
     }
-    OS << '\n';
   }
 }
 
