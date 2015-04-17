@@ -84,6 +84,11 @@ static cl::opt<bool>
 EnableFMFInDAG("enable-fmf-dag", cl::init(true), cl::Hidden,
                 cl::desc("Enable fast-math-flags for DAG nodes"));
 
+static cl::opt<bool> EnablePeepholing("enable-peepholing",
+                 cl::init(false),
+                 cl::desc("Enable peepholing around instruction selection"),
+                 cl::Hidden);
+
 // Limit the width of DAG chains. This is important in general to prevent
 // DAG-based analysis from blowing up. For example, alias analysis and
 // load clustering may not complete in reasonable time. It is difficult to
@@ -1730,7 +1735,8 @@ void SelectionDAGBuilder::visitBr(const BranchInst &I) {
   //
   if (const BinaryOperator *BOp = dyn_cast<BinaryOperator>(CondVal)) {
     Instruction::BinaryOps Opcode = BOp->getOpcode();
-    if (!DAG.getTargetLoweringInfo().isJumpExpensive() && BOp->hasOneUse() &&
+    if (EnablePeepholing &&
+        !DAG.getTargetLoweringInfo().isJumpExpensive() && BOp->hasOneUse() &&
         !I.getMetadata(LLVMContext::MD_unpredictable) &&
         (Opcode == Instruction::And || Opcode == Instruction::Or)) {
       FindMergedConditions(BOp, Succ0MBB, Succ1MBB, BrMBB, BrMBB,
