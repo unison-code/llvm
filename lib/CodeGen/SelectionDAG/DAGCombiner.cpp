@@ -50,6 +50,11 @@ STATISTIC(LdStFP2Int      , "Number of fp load/store pairs transformed to int");
 STATISTIC(SlicedLoads, "Number of load sliced");
 
 namespace {
+
+  static cl::opt<bool>
+    DisableCombiner("disable-combiner", cl::Hidden,
+                    cl::desc("Disable DAG combiner"));
+
   static cl::opt<bool>
     CombinerAA("combiner-alias-analysis", cl::Hidden,
                cl::desc("Enable DAG combiner alias-analysis heuristics"));
@@ -1245,6 +1250,7 @@ bool DAGCombiner::recursivelyDeleteUnusedNodes(SDNode *N) {
 //===----------------------------------------------------------------------===//
 
 void DAGCombiner::Run(CombineLevel AtLevel) {
+
   // set the instance variables, so that the various visit routines may use it.
   Level = AtLevel;
   LegalOperations = Level >= AfterLegalizeVectorOps;
@@ -14794,5 +14800,7 @@ bool DAGCombiner::findBetterNeighborChains(StoreSDNode* St) {
 void SelectionDAG::Combine(CombineLevel Level, AliasAnalysis &AA,
                            CodeGenOpt::Level OptLevel) {
   /// This is the main entry point to this class.
-  DAGCombiner(*this, AA, OptLevel).Run(Level);
+  if (!DisableCombiner) {
+    DAGCombiner(*this, AA, OptLevel).Run(Level);
+  }
 }
