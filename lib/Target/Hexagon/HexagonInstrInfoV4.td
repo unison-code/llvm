@@ -3413,9 +3413,9 @@ multiclass ST_Abs<string mnemonic, string CextOp, RegisterClass RC,
 //===----------------------------------------------------------------------===//
 let hasSideEffects = 0, isPredicable = 1, mayStore = 1, isNVStore = 1,
     isNewValue = 1, opNewValue = 1 in
-class T_StoreAbsGP_NV <string mnemonic, Operand ImmOp, bits<2>MajOp, bit isAbs>
-  : NVInst_V4<(outs), (ins u32Imm:$addr, IntRegs:$src),
-  mnemonic # !if(isAbs, "(##", "(#")#"$addr) = $src.new",
+class T_StoreAbsGP_NV <string mnemonic, Operand ImmOp, bits<2>MajOp>
+  : NVInst_V4<(outs), (ins ImmOp:$addr, IntRegs:$src),
+  mnemonic #"(#$addr) = $src.new",
   [], "", V2LDST_tc_st_SLOT0> {
     bits<19> addr;
     bits<3> src;
@@ -3426,7 +3426,6 @@ class T_StoreAbsGP_NV <string mnemonic, Operand ImmOp, bits<2>MajOp, bit isAbs>
                      !if (!eq(ImmOpStr, "u16_2Imm"), addr{17-2},
                      !if (!eq(ImmOpStr, "u16_1Imm"), addr{16-1},
                                       /* u16_0Imm */ addr{15-0})));
-    let Uses = !if (isAbs, [], [GP]);
     let IClass = 0b0100;
 
     let Inst{27} = 1;
@@ -3446,7 +3445,7 @@ class T_StoreAbsGP_NV <string mnemonic, Operand ImmOp, bits<2>MajOp, bit isAbs>
 let hasSideEffects = 0, isPredicated = 1, mayStore = 1, isNVStore = 1,
     isNewValue = 1, opNewValue = 2, opExtentBits = 6, opExtendable = 1 in
 class T_StoreAbs_NV_Pred <string mnemonic, bits<2> MajOp, bit isNot, bit isNew>
-  : NVInst_V4<(outs), (ins PredRegs:$src1, u6Ext:$absaddr, IntRegs:$src2),
+  : NVInst_V4<(outs), (ins PredRegs:$src1, u32MustExt:$absaddr, IntRegs:$src2),
   !if(isNot, "if (!$src1", "if ($src1")#!if(isNew, ".new) ",
   ") ")#mnemonic#"(#$absaddr) = $src2.new",
   [], "", ST_tc_st_SLOT0>, AddrModeRel {
@@ -3476,7 +3475,7 @@ class T_StoreAbs_NV_Pred <string mnemonic, bits<2> MajOp, bit isNot, bit isNew>
 // absolute addressing.
 //===----------------------------------------------------------------------===//
 class T_StoreAbs_NV <string mnemonic, Operand ImmOp, bits<2> MajOp>
-  : T_StoreAbsGP_NV <mnemonic, ImmOp, MajOp, 1>, AddrModeRel {
+  : T_StoreAbsGP_NV <mnemonic, u32MustExt, MajOp>, AddrModeRel {
 
   string ImmOpStr = !cast<string>(ImmOp);
   let opExtentBits = !if (!eq(ImmOpStr, "u16_3Imm"), 19,
@@ -3538,7 +3537,7 @@ defm storerf : ST_Abs <"memh", "STrif", IntRegs, u16_1Imm, 0b01, 1>;
 // if ([!]Pv[.new]) mem[bhwd](##global)=Rt
 //===----------------------------------------------------------------------===//
 
-let isAsmParserOnly = 1 in
+let Uses = [GP], isAsmParserOnly = 1 in
 class T_StoreGP <string mnemonic, string BaseOp, RegisterClass RC,
                  Operand ImmOp, bits<2> MajOp, bit isHalf = 0>
   : T_StoreAbsGP <mnemonic, RC, ImmOp, MajOp, 0, isHalf> {
@@ -3548,7 +3547,7 @@ class T_StoreGP <string mnemonic, string BaseOp, RegisterClass RC,
     let BaseOpcode = BaseOp#_abs;
   }
 
-let isAsmParserOnly = 1 in
+let Uses = [GP], isAsmParserOnly = 1 in
 multiclass ST_GP <string mnemonic, string BaseOp, Operand ImmOp,
                   bits<2> MajOp, bit isHalf = 0> {
   // Set BaseOpcode same as absolute addressing instructions so that
@@ -3558,7 +3557,7 @@ multiclass ST_GP <string mnemonic, string BaseOp, Operand ImmOp,
     def NAME#gp : T_StoreAbsGP <mnemonic, IntRegs, ImmOp, MajOp,
                                 0, isHalf>;
     // New-value store
-    def NAME#newgp : T_StoreAbsGP_NV <mnemonic, ImmOp, MajOp, 0> ;
+    def NAME#newgp : T_StoreAbsGP_NV <mnemonic, ImmOp, MajOp> ;
   }
 }
 
