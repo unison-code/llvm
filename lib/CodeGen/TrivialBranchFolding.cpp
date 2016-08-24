@@ -16,6 +16,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Support/CommandLine.h"
@@ -63,7 +64,7 @@ bool TrivialBranchFolding::runOnMachineFunction(MachineFunction& MF) {
              << MF.getFunction()->getName() << '\n';
     });
 
-  TII = MF.getTarget().getInstrInfo();
+  TII = MF.getSubtarget().getInstrInfo();
 
   bool Changed = false;
 

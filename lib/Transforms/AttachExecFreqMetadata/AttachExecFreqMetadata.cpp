@@ -43,7 +43,7 @@ struct AttachExecFreqMetadata : public FunctionPass {
 
     virtual bool
     runOnFunction(Function& f) {
-        BFI = &getAnalysis<BlockFrequencyInfo>();
+        BFI = &getAnalysis<BlockFrequencyInfoWrapperPass>().getBFI();
         for (Function::iterator i = f.begin(), e = f.end(); i != e; ++i) {
             runOnBasicBlock(*i);
         }
@@ -55,7 +55,7 @@ struct AttachExecFreqMetadata : public FunctionPass {
     virtual void
     getAnalysisUsage(AnalysisUsage& AU) const {
         AU.setPreservesAll();
-        AU.addRequired<BlockFrequencyInfo>();
+        AU.addRequired<BlockFrequencyInfoWrapperPass>();
     }
 
   protected:
@@ -72,7 +72,9 @@ struct AttachExecFreqMetadata : public FunctionPass {
             ConstantInt::get(IntegerType::get(bb.getContext(), 64),
                              getBlockFreq(bb),
                              false);
-        return MDNode::get(bb.getContext(), ArrayRef<Value*>(freq_value));
+        Metadata* freq_value_as_meta = ValueAsMetadata::get(freq_value);
+        return MDNode::get(bb.getContext(),
+                           ArrayRef<Metadata*>(freq_value_as_meta));
     }
 
     /// Gets the block frequency as an integer.
@@ -90,4 +92,4 @@ struct AttachExecFreqMetadata : public FunctionPass {
 
 char AttachExecFreqMetadata::ID = 0;
 static RegisterPass<AttachExecFreqMetadata>
-CP("attach-exec-freq-metadata", "AttachExecFreqMetadata Pass");
+Y("attach-exec-freq-metadata", "AttachExecFreqMetadata Pass");

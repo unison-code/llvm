@@ -69,15 +69,15 @@ namespace {
               // conditional branch on the select predicate.
               BB->getInstList().erase(BB->getTerminator());
 
-              BranchInst::Create(NewTrue, NewCont, SI->getCondition(), BB);
+              BranchInst::Create(NewTrue, NewCont, SI->getCondition(), &(*BB));
 
               // Create a new PHI node in the cont block with the entries we
               // need.
               PHINode *PN =
-                PHINode::Create(SI->getType(), 0, "", NewCont->begin());
+                PHINode::Create(SI->getType(), 0, "", &(*NewCont->begin()));
               PN->takeName(SI);
               PN->addIncoming(SI->getTrueValue(), NewTrue);
-              PN->addIncoming(SI->getFalseValue(), BB);
+              PN->addIncoming(SI->getFalseValue(), &(*BB));
 
               // Use the PHI instead of the select.
               SI->replaceAllUsesWith(PN);

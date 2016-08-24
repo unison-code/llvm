@@ -35,7 +35,6 @@ namespace {
   private:
 
     TargetSchedModel SchedModel;
-    const TargetInstrInfo *TII;
 
     virtual bool runOnMachineFunction(MachineFunction &MF);
 
@@ -53,26 +52,27 @@ INITIALIZE_PASS(ISelCost, "isel-cost",
 
 bool ISelCost::runOnMachineFunction(MachineFunction &MF) {
 
-  TII = MF.getTarget().getInstrInfo();
-
-  const TargetSubtargetInfo &ST =
-    MF.getTarget().getSubtarget<TargetSubtargetInfo>();
-  SchedModel.init(*ST.getSchedModel(), &ST, TII);
+  const TargetSubtargetInfo &ST = MF.getSubtarget();
+  TargetSchedModel model;
+  model.init(ST.getSchedModel(), &ST, ST.getInstrInfo());
 
   int cycles = 0;
   int size = 0;
 
   // Iterate through each instruction in the function
   for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
-    MachineBasicBlock *MBB = I;
+    MachineBasicBlock *MBB = &(*I);
     // TODO: check for null pointers and fail gracefully
-    const MDNode * fn =
+    const MDNode *fn =
       MBB->getBasicBlock()->getTerminator()->getMetadata("exec_freq");
-    int f = ((const ConstantInt *)fn->getOperand(0))->getLimitedValue();
+    const ConstantAsMetadata *c_md_f =
+      (const ConstantAsMetadata *)(fn->getOperand(0).get());
+    const ConstantInt *ci_f = (const ConstantInt *)c_md_f->getValue();
+    int f = ci_f->getLimitedValue();
     for (MachineBasicBlock::iterator MBBI = MBB->begin(), MBBE = MBB->end();
          MBBI != MBBE; ) {
       MachineInstr *MI = MBBI++;
-      cycles +=  f * SchedModel.computeInstrLatency(MI);
+      cycles +=  f * model.computeInstrLatency(MI);
       size += MI->getDesc().getSize();
     }
   }

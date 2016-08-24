@@ -311,6 +311,8 @@ void MachineOperand::print(raw_ostream &OS,
 
 void MachineOperand::print(raw_ostream &OS, ModuleSlotTracker &MST,
                            const TargetRegisterInfo *TRI) const {
+  const TargetMachine *TM = &getParent()->getParent()->getParent()->getTarget();
+
   switch (getType()) {
   case MachineOperand::MO_Register:
     OS << PrintReg(getReg(), TRI, getSubReg());
@@ -1782,6 +1784,7 @@ void MachineInstr::print(raw_ostream &OS, ModuleSlotTracker &MST,
       MO.print(OS, MST, TRI);
   }
 
+  const TargetMachine *TM = &getParent()->getParent()->getTarget();
   if (!(TM->Options.PrintMachineCode)) {
     OS << '\n';
     return;
