@@ -14,6 +14,7 @@
 
 #define DEBUG_TYPE "isel-cost"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/TargetSchedule.h"
@@ -50,6 +51,27 @@ INITIALIZE_PASS(ISelCost, "isel-cost",
                 "Compute and print the cost of instruction selection",
                 false, false)
 
+const MDNode*
+getExecFreqMetaDataNode(const MachineBasicBlock *MBB) {
+    assert(MBB && "invalid argument: cannot be null");
+    const MDNode *fn =
+      MBB->getBasicBlock()->getTerminator()->getMetadata("exec_freq");
+    if (!fn) {
+        // Try getting the execution frequency of one of MBB's predecessors
+        if (MBB->pred_size() > 0) {
+            MachineBasicBlock::const_pred_iterator it = MBB->pred_begin();
+            return getExecFreqMetaDataNode(*it);
+        }
+        else {
+            errs() << "Machine basic block '" << MBB->getName()
+                   << "' has no predecessors\n";
+            assert(false);
+        }
+    }
+    return fn;
+}
+
+
 bool ISelCost::runOnMachineFunction(MachineFunction &MF) {
 
   const TargetSubtargetInfo &ST = MF.getSubtarget();
@@ -62,11 +84,11 @@ bool ISelCost::runOnMachineFunction(MachineFunction &MF) {
   // Iterate through each instruction in the function
   for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
     MachineBasicBlock *MBB = &(*I);
-    // TODO: check for null pointers and fail gracefully
-    const MDNode *fn =
-      MBB->getBasicBlock()->getTerminator()->getMetadata("exec_freq");
+    assert(MBB);
+    const MDNode *fn = getExecFreqMetaDataNode(MBB);
     const ConstantAsMetadata *c_md_f =
       (const ConstantAsMetadata *)(fn->getOperand(0).get());
+    assert(c_md_f);
     const ConstantInt *ci_f = (const ConstantInt *)c_md_f->getValue();
     int f = ci_f->getLimitedValue();
     for (MachineBasicBlock::iterator MBBI = MBB->begin(), MBBE = MBB->end();
