@@ -52,6 +52,9 @@ namespace {
             if (SI->getCondition()->getType()->isIntegerTy(1)) {
               // Lower only scalar select constructs
 
+              // Get execution frequency metadata of this block
+              MDNode *MD = BB->getTerminator()->getMetadata("exec_freq");
+
               // Split this basic block in half right before the select
               // instruction.
               BasicBlock *NewCont =
@@ -63,13 +66,18 @@ namespace {
                                    BB->getName()+".selecttrue",
                                    BB->getParent(), NewCont);
 
-              BranchInst::Create(NewCont, NewTrue);
+              BranchInst* new_br = BranchInst::Create(NewCont, NewTrue);
+              if (MD) new_br->setMetadata("exec_freq", MD);
 
               // Make the unconditional branch in the incoming block be a
               // conditional branch on the select predicate.
               BB->getInstList().erase(BB->getTerminator());
 
-              BranchInst::Create(NewTrue, NewCont, SI->getCondition(), &(*BB));
+              BranchInst* new_condbr = BranchInst::Create(NewTrue,
+                                                          NewCont,
+                                                          SI->getCondition(),
+                                                          &(*BB));
+              if (MD) new_condbr->setMetadata("exec_freq", MD);
 
               // Create a new PHI node in the cont block with the entries we
               // need.
