@@ -1,4 +1,4 @@
-//===- ExpandGetElementPtr.cpp - Expand GetElementPtr into arithmetic------===//
+//===- LowerGetElementPtr.cpp - Lower GetElementPtr into arithmetic------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This pass expands out GetElementPtr instructions into ptrtoint,
-// inttoptr and arithmetic instructions.
+// This pass lowers GetElementPtr instructions into ptrtoint, inttoptr and
+// arithmetic instructions.
 //
 // This simplifies the language so that the PNaCl translator does not
 // need to handle GetElementPtr and struct types as part of a stable
@@ -18,7 +18,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "expandgetelementptr"
+#define DEBUG_TYPE "lowergetelementptr"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Function.h"
@@ -33,10 +33,10 @@
 using namespace llvm;
 
 namespace {
-  class ExpandGetElementPtr : public BasicBlockPass {
+  class LowerGetElementPtr : public BasicBlockPass {
   public:
     static char ID; // Pass identification, replacement for typeid
-    ExpandGetElementPtr() : BasicBlockPass(ID) {}
+    LowerGetElementPtr() : BasicBlockPass(ID) {}
 
     virtual bool runOnBasicBlock(BasicBlock &BB);
   };
@@ -76,7 +76,7 @@ static void FlushOffset(Instruction **Ptr, uint64_t *CurrentOffset,
   }
 }
 
-static void ExpandGEP(GetElementPtrInst *GEP, DataLayout *DL, Type *PtrType) {
+static void LowerGEP(GetElementPtrInst *GEP, DataLayout *DL, Type *PtrType) {
   const DebugLoc &Debug = GEP->getDebugLoc();
   Instruction *Ptr = new PtrToIntInst(GEP->getPointerOperand(), PtrType,
                                       "gep_int", GEP);
@@ -129,7 +129,7 @@ static void ExpandGEP(GetElementPtrInst *GEP, DataLayout *DL, Type *PtrType) {
   GEP->eraseFromParent();
 }
 
-bool ExpandGetElementPtr::runOnBasicBlock(BasicBlock &BB) {
+bool LowerGetElementPtr::runOnBasicBlock(BasicBlock &BB) {
   bool Modified = false;
   DataLayout DL(BB.getParent()->getParent());
   Type *PtrType = DL.getIntPtrType(BB.getContext());
@@ -138,12 +138,12 @@ bool ExpandGetElementPtr::runOnBasicBlock(BasicBlock &BB) {
     Instruction *Inst = &*I++;
     if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Inst)) {
       Modified = true;
-      ExpandGEP(GEP, &DL, PtrType);
+      LowerGEP(GEP, &DL, PtrType);
     }
   }
   return Modified;
 }
 
-char ExpandGetElementPtr::ID = 0;
-static RegisterPass<ExpandGetElementPtr>
-X("expandgetelementptr", "Expand out GetElementPtr instructions into arithmetic");
+char LowerGetElementPtr::ID = 0;
+static RegisterPass<LowerGetElementPtr>
+X("lowergetelementptr", "Lower GetElementPtr instructions into arithmetic");

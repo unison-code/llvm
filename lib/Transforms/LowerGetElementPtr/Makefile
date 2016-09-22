@@ -1,5 +1,5 @@
 LEVEL = ../../..
-LIBRARYNAME = ExpandGetElementPtr
+LIBRARYNAME = LowerGetElementPtr
 LOADABLE_MODULE = 1
 USEDLIBS =
 
@@ -7,7 +7,7 @@ USEDLIBS =
 # from the hello plugin.
 ifneq ($(REQUIRES_RTTI), 1)
 ifneq ($(REQUIRES_EH), 1)
-EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/ExpandGetElementPtr.exports
+EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/LowerGetElementPtr.exports
 endif
 endif
 
