@@ -27,6 +27,8 @@ STATISTIC(TotalInsts , "Number of instructions (of all types)");
 STATISTIC(TotalBlocks, "Number of basic blocks");
 STATISTIC(TotalFuncs , "Number of non-external functions");
 STATISTIC(TotalMemInst, "Number of memory instructions");
+STATISTIC(TotalArrayInsts, "Number of instructions that operate on array data types");
+STATISTIC(TotalVectorInsts, "Number of instructions that operate on vector data types");
 
 #define HANDLE_INST(N, OPCODE, CLASS) \
   STATISTIC(Num ## OPCODE ## Inst, "Number of " #OPCODE " insts");
@@ -42,7 +44,15 @@ namespace {
     void visitBasicBlock(BasicBlock &BB) { ++TotalBlocks; }
 
 #define HANDLE_INST(N, OPCODE, CLASS) \
-    void visit##OPCODE(CLASS &) { ++Num##OPCODE##Inst; ++TotalInsts; }
+    void visit##OPCODE(CLASS &i) { \
+      ++Num##OPCODE##Inst; \
+      ++TotalInsts; \
+      for (Instruction::op_iterator I = i.op_begin(); I != i.op_end(); I++) { \
+        Type* t = (*I)->getType(); \
+        if (isArrayTy(t)) TotalArrayInsts++; \
+        if (isVectorTy(t)) TotalVectorInsts++; \
+      } \
+    }
 
 #include "llvm/IR/Instruction.def"
 
@@ -63,6 +73,21 @@ namespace {
     }
     void print(raw_ostream &O, const Module *M) const override {}
 
+    bool isArrayTy(Type* t) {
+      if (t->isPointerTy()) {
+        PointerType* pt = dyn_cast<PointerType>(t);
+        return isArrayTy(pt->getElementType());
+      }
+      else return t->isArrayTy();
+    }
+
+    bool isVectorTy(Type* t) {
+      if (t->isPointerTy()) {
+        PointerType* pt = dyn_cast<PointerType>(t);
+        return isVectorTy(pt->getElementType());
+      }
+      else return t->isVectorTy();
+    }
   };
 }
 
