@@ -510,6 +510,8 @@ namespace llvm {
       LCMPXCHG_DAG = ISD::FIRST_TARGET_MEMORY_OPCODE,
       LCMPXCHG8_DAG,
       LCMPXCHG16_DAG,
+      LCMPXCHG8_SAVE_EBX_DAG,
+      LCMPXCHG16_SAVE_RBX_DAG,
 
       // Load, scalar_to_vector, and zero extend.
       VZEXT_LOAD,
@@ -1128,6 +1130,9 @@ namespace llvm {
 
     MachineBasicBlock *EmitLoweredSegAlloca(MachineInstr *MI,
                                             MachineBasicBlock *BB) const;
+
+    MachineBasicBlock *EmitLoweredTLSAddr(MachineInstr *MI,
+                                          MachineBasicBlock *BB) const;
 
     MachineBasicBlock *EmitLoweredTLSCall(MachineInstr *MI,
                                           MachineBasicBlock *BB) const;
