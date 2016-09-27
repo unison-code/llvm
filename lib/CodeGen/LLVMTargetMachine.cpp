@@ -145,16 +145,22 @@ addPassesToGenerateCode(LLVMTargetMachine *TM, PassManagerBase &PM,
 bool LLVMTargetMachine::addPassesToEmitFile(
     PassManagerBase &PM, raw_pwrite_stream &Out, CodeGenFileType FileType,
     bool DisableVerify, AnalysisID StartBefore, AnalysisID StartAfter,
-    AnalysisID StopAfter, MachineFunctionInitializer *MFInitializer) {
+    AnalysisID StopAfter, MachineFunctionInitializer *MFInitializer,
+    MachineFunctionPass * UnisonDriver) {
   // Add common CodeGen passes.
   MCContext *Context =
       addPassesToGenerateCode(this, PM, DisableVerify, StartBefore, StartAfter,
                               StopAfter, MFInitializer);
+
+  if (UnisonDriver) {
+    PM.add(UnisonDriver);
+  }
+
   if (!Context)
     return true;
 
   if (StopAfter) {
-    PM.add(createPrintMIRPass(outs()));
+    PM.add(createPrintMIRPass(outs(), Options.UnisonMIR));
     return false;
   }
 

@@ -104,7 +104,8 @@ namespace llvm {
           EmulatedTLS(false), FloatABIType(FloatABI::Default),
           AllowFPOpFusion(FPOpFusion::Standard), Reciprocals(TargetRecip()),
           JTType(JumpTable::Single), ThreadModel(ThreadModel::POSIX),
-          EABIVersion(EABI::Default), DebuggerTuning(DebuggerKind::Default) {}
+          EABIVersion(EABI::Default), DebuggerTuning(DebuggerKind::Default),
+          Unison(false), UnisonInputFile(""), UnisonMIR(false) {}
 
     /// PrintMachineCode - This flag is enabled when the -print-machineinstrs
     /// option is specified on the command line, and should enable debugging
@@ -247,6 +248,15 @@ namespace llvm {
 
     /// Which debugger to tune for.
     DebuggerKind DebuggerTuning;
+
+    /// Unison - Use Unison for register allocation and instruction scheduling.
+    unsigned Unison : 1;
+
+    /// UnisonInputFile - Name of the input MIR file to feed the Unison driver.
+    std::string UnisonInputFile;
+
+    /// UnisonMIR - Use Unison-style MIR.
+    unsigned UnisonMIR : 1;
 
     /// Machine level options.
     MCTargetOptions MCOptions;

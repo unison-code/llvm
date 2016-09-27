@@ -20,6 +20,7 @@
 #include "llvm/TableGen/Main.h"
 #include "llvm/TableGen/Record.h"
 #include "llvm/TableGen/SetTheory.h"
+#include "llvm/TableGen/Unison.h"
 
 using namespace llvm;
 
@@ -43,7 +44,8 @@ enum ActionType {
   PrintSets,
   GenOptParserDefs,
   GenCTags,
-  GenAttributes
+  GenAttributes,
+  Unison
 };
 
 namespace {
@@ -89,6 +91,8 @@ namespace {
                                "Generate ctags-compatible index"),
                     clEnumValN(GenAttributes, "gen-attrs",
                                "Generate attributes"),
+                    clEnumValN(Unison, "unison",
+                               "Generate machine description for unison"),
                     clEnumValEnd));
 
   cl::opt<std::string>
@@ -97,6 +101,9 @@ namespace {
 
 bool LLVMTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
   switch (Action) {
+  case Unison:
+    printUnisonFile(OS, Records);
+    break;
   case PrintRecords:
     OS << Records;           // No argument, dump all contents
     break;

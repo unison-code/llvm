@@ -382,7 +382,9 @@ namespace llvm {
 
   /// MIRPrinting pass - this pass prints out the LLVM IR into the given stream
   /// using the MIR serialization format.
-  MachineFunctionPass *createPrintMIRPass(raw_ostream &OS);
+  MachineFunctionPass *createPrintMIRPass(raw_ostream &OS,
+                                          bool UnisonStyle = false,
+                                          bool FinalizeFunctions = false);
 
   /// createCodeGenPreparePass - Transform the code to expose more pattern
   /// matching during instruction selection.
@@ -571,6 +573,13 @@ namespace llvm {
   /// MachineCopyPropagation - This pass performs copy propagation on
   /// machine instructions.
   extern char &MachineCopyPropagationID;
+
+  /// MemoryAlias - This pass provides target-specific alias information.
+  extern char &MemoryAliasID;
+
+  /// CleanUnisonMetadata - This pass cleans all machine operand metadata
+  /// created by Unison.
+  extern char &CleanUnisonMetadataID;
 
   /// PeepholeOptimizer - This pass performs peephole optimizations -
   /// like extension and comparison eliminations.

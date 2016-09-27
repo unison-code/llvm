@@ -53,6 +53,11 @@ static cl::opt<bool>
 AdjustJumpTableBlocks("arm-adjust-jump-tables", cl::Hidden, cl::init(true),
           cl::desc("Adjust basic block layout to better use TB[BH]"));
 
+static cl::opt<bool>
+OptimizeThumb2Instructions("arm-optimize-thumb2-in-cp-islands", cl::Hidden,
+    cl::init(true),
+    cl::desc("Optimize Thumb2 instructions within the constant island pass"));
+
 /// UnknownPadding - Return the worst case padding that could result from
 /// unknown offset bits.  This does not include alignment padding caused by
 /// known offset bits.
@@ -413,7 +418,7 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
   // Try to reorder and otherwise adjust the block layout to make good use
   // of the TB[BH] instructions.
   bool MadeChange = false;
-  if (isThumb2 && AdjustJumpTableBlocks) {
+  if (isThumb2 && AdjustJumpTableBlocks && OptimizeThumb2Instructions) {
     scanFunctionJumpTables();
     MadeChange |= reorderThumb2JumpTables();
     // Data is out of date, so clear it. It'll be re-computed later.
@@ -479,7 +484,7 @@ bool ARMConstantIslands::runOnMachineFunction(MachineFunction &mf) {
   }
 
   // Shrink 32-bit Thumb2 branch, load, and store instructions.
-  if (isThumb2 && !STI->prefers32BitThumb())
+  if (isThumb2 && !STI->prefers32BitThumb() && OptimizeThumb2Instructions)
     MadeChange |= optimizeThumb2Instructions();
 
   // After a while, this might be made debug-only, but it is not expensive.

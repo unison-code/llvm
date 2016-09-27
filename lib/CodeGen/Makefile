@@ -9,7 +9,7 @@
 
 LEVEL = ../..
 LIBRARYNAME = LLVMCodeGen
-PARALLEL_DIRS = SelectionDAG AsmPrinter MIRParser
+PARALLEL_DIRS = SelectionDAG AsmPrinter MIRParser UnisonDriver
 BUILD_ARCHIVE = 1
 
 include $(LEVEL)/Makefile.common

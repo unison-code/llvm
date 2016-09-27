@@ -559,14 +559,16 @@ static inline bool isUnsafeMemoryObject(MachineInstr *MI,
   return false;
 }
 
+namespace llvm {
+
 /// This returns true if the two MIs need a chain edge between them.
 /// If these are not even memory operations, we still may need
 /// chain deps between them. The question really is - could
 /// these two MIs be reordered during scheduling from memory dependency
 /// point of view.
-static bool MIsNeedChainEdge(AliasAnalysis *AA, const MachineFrameInfo *MFI,
-                             const DataLayout &DL, MachineInstr *MIa,
-                             MachineInstr *MIb) {
+bool MIsNeedChainEdge(AliasAnalysis *AA, const MachineFrameInfo *MFI,
+                      const DataLayout &DL, MachineInstr *MIa,
+                      MachineInstr *MIb) {
   const MachineFunction *MF = MIa->getParent()->getParent();
   const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
 
@@ -633,6 +635,8 @@ static bool MIsNeedChainEdge(AliasAnalysis *AA, const MachineFrameInfo *MFI,
 
   return (AAResult != NoAlias);
 }
+
+} // namespace llvm
 
 /// This recursive function iterates over chain deps of SUb looking for
 /// "latest" node that needs a chain edge to SUa.

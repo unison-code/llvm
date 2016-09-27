@@ -267,6 +267,16 @@ DebuggerTuningOpt("debugger-tune",
                                  "SCE targets (e.g. PS4)"),
                       clEnumValEnd));
 
+cl::opt<bool>
+Unison("unison",
+       cl::desc("Use Unison for register allocation and instruction scheduling"),
+       cl::init(false));
+
+cl::opt<bool>
+UnisonMIR("unison-mir",
+          cl::desc("Use Unison-style MIR"),
+          cl::init(false));
+
 // Common utility function tightly tied to the options listed here. Initializes
 // a TargetOptions object with CodeGen flags and returns it.
 static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
@@ -297,6 +307,9 @@ static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
   Options.ThreadModel = TMModel;
   Options.EABIVersion = EABIVersion;
   Options.DebuggerTuning = DebuggerTuningOpt;
+
+  Options.Unison = Unison;
+  Options.UnisonMIR = UnisonMIR;
 
   return Options;
 }

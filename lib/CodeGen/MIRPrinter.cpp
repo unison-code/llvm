@@ -70,9 +70,10 @@ class MIRPrinter {
   /// Maps from stack object indices to operand indices which will be used when
   /// printing frame index machine operands.
   DenseMap<int, FrameIndexOperand> StackObjectOperandMapping;
+  MIRAuxiliaryInfo Info;
 
 public:
-  MIRPrinter(raw_ostream &OS) : OS(OS) {}
+  MIRPrinter(raw_ostream &OS, MIRAuxiliaryInfo &Info) : OS(OS), Info(Info) {}
 
   void print(const MachineFunction &MF);
 
@@ -100,13 +101,16 @@ class MIPrinter {
   ModuleSlotTracker &MST;
   const DenseMap<const uint32_t *, unsigned> &RegisterMaskIds;
   const DenseMap<int, FrameIndexOperand> &StackObjectOperandMapping;
+  MIRAuxiliaryInfo Info;
 
 public:
   MIPrinter(raw_ostream &OS, ModuleSlotTracker &MST,
             const DenseMap<const uint32_t *, unsigned> &RegisterMaskIds,
-            const DenseMap<int, FrameIndexOperand> &StackObjectOperandMapping)
+            const DenseMap<int, FrameIndexOperand> &StackObjectOperandMapping,
+            MIRAuxiliaryInfo &Info)
       : OS(OS), MST(MST), RegisterMaskIds(RegisterMaskIds),
-        StackObjectOperandMapping(StackObjectOperandMapping) {}
+        StackObjectOperandMapping(StackObjectOperandMapping),
+        Info(Info) {}
 
   void print(const MachineBasicBlock &MBB);
 
@@ -185,7 +189,7 @@ void MIRPrinter::print(const MachineFunction &MF) {
   for (const auto &MBB : MF) {
     if (IsNewlineNeeded)
       StrOS << "\n";
-    MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping)
+    MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping, Info)
         .print(MBB);
     IsNewlineNeeded = true;
   }
@@ -256,12 +260,12 @@ void MIRPrinter::convert(ModuleSlotTracker &MST,
   YamlMFI.HasMustTailInVarArgFunc = MFI.hasMustTailInVarArgFunc();
   if (MFI.getSavePoint()) {
     raw_string_ostream StrOS(YamlMFI.SavePoint.Value);
-    MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping)
+    MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping, Info)
         .printMBBReference(*MFI.getSavePoint());
   }
   if (MFI.getRestorePoint()) {
     raw_string_ostream StrOS(YamlMFI.RestorePoint.Value);
-    MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping)
+    MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping, Info)
         .printMBBReference(*MFI.getRestorePoint());
   }
 }
@@ -343,7 +347,7 @@ void MIRPrinter::convertStackObjects(yaml::MachineFunction &MF,
   // converting the stack objects.
   if (MFI.hasStackProtectorIndex()) {
     raw_string_ostream StrOS(MF.FrameInfo.StackProtector.Value);
-    MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping)
+    MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping, Info)
         .printStackObjectReference(MFI.getStackProtectorIndex());
   }
 
@@ -401,7 +405,7 @@ void MIRPrinter::convert(ModuleSlotTracker &MST,
     Entry.ID = ID++;
     for (const auto *MBB : Table.MBBs) {
       raw_string_ostream StrOS(Str);
-      MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping)
+      MIPrinter(StrOS, MST, RegisterMaskIds, StackObjectOperandMapping, Info)
           .printMBBReference(*MBB);
       Entry.Blocks.push_back(StrOS.str());
       Str.clear();
@@ -449,6 +453,13 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
     OS << "align " << MBB.getAlignment();
     HasAttributes = true;
   }
+
+  if (Info.UnisonStyle) {
+    OS << (HasAttributes ? ", " : " (");
+    OS << "freq " << Info.SP->getBlockFrequency(MBB.getNumber()).getFrequency();
+    HasAttributes = true;
+  }
+
   if (HasAttributes)
     OS << ")";
   OS << ":\n";
@@ -462,7 +473,7 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
         OS << ", ";
       printMBBReference(**I);
       if (MBB.hasSuccessorProbabilities())
-        OS << '(' << MBB.getSuccProbability(I) << ')';
+        OS << '(' << MBB.getSuccProbability(I).scale(100) << ')';
     }
     OS << "\n";
     HasLineAttributes = true;
@@ -483,6 +494,43 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
         OS << ':' << PrintLaneMask(LI.LaneMask);
     }
     OS << "\n";
+    HasLineAttributes = true;
+  }
+
+  if (Info.UnisonStyle) {
+    // Print the live out registers. If there are no registers live-out, the
+    // marker still provides the information that the function actually returns
+    // (which is important e.g. to implement calling conventions).
+    if (MBB.succ_empty() && !MBB.empty() && MBB.back().isReturn()) {
+      OS.indent(2) << "liveouts:";
+      bool returns = false;
+      for (auto I = MBB.instr_begin(), E = MBB.instr_end();
+           I != E && !returns; ++I) {
+        if (I->isReturn()) {
+          returns = true;
+          bool First = true;
+          for (unsigned op = 0; op < I->getNumOperands(); op++) {
+            MachineOperand MO = I->getOperand(op);
+            if (MO.isReg() && MO.isUse() && MO.isImplicit()) {
+              if (First)
+                OS << " ";
+              else
+                OS << ", ";
+              First = false;
+              printReg(MO.getReg(), OS, TRI);
+            }
+          }
+        }
+      }
+      OS << "\n";
+      HasLineAttributes = true;
+    }
+  }
+
+  // Print the 'exit' marker for basic blocks that exit but do not return to
+  // their caller function.
+  if (MBB.succ_empty() && (MBB.empty() || !MBB.back().isReturn())) {
+    OS.indent(2) << "exit\n";
     HasLineAttributes = true;
   }
 
@@ -830,6 +878,10 @@ void MIPrinter::print(const MachineOperand &Op, const TargetRegisterInfo *TRI,
     break;
   }
   case MachineOperand::MO_Metadata:
+    if (Info.UnisonStyle) {
+      OS << *(Op.getMetadata());
+      break;
+    }
     Op.getMetadata()->printAsOperand(OS, MST);
     break;
   case MachineOperand::MO_MCSymbol:
@@ -861,9 +913,7 @@ void MIPrinter::print(const MachineMemOperand &Op) {
   OS << Op.getSize() << (Op.isLoad() ? " from " : " into ");
   if (const Value *Val = Op.getValue()) {
     printIRValueReference(*Val);
-  } else {
-    const PseudoSourceValue *PVal = Op.getPseudoValue();
-    assert(PVal && "Expected a pseudo source value");
+  } else if (const PseudoSourceValue *PVal = Op.getPseudoValue()) {
     switch (PVal->kind()) {
     case PseudoSourceValue::Stack:
       OS << "stack";
@@ -892,6 +942,8 @@ void MIPrinter::print(const MachineMemOperand &Op) {
           OS, cast<ExternalSymbolPseudoSourceValue>(PVal)->getSymbol());
       break;
     }
+  } else {
+    OS << "unknown";
   }
   printOffset(Op.getOffset());
   if (Op.getBaseAlignment() != Op.getSize())
@@ -973,7 +1025,8 @@ void llvm::printMIR(raw_ostream &OS, const Module &M) {
   Out << const_cast<Module &>(M);
 }
 
-void llvm::printMIR(raw_ostream &OS, const MachineFunction &MF) {
-  MIRPrinter Printer(OS);
+void llvm::printMIR(raw_ostream &OS, const MachineFunction &MF,
+                    MIRAuxiliaryInfo &Info) {
+  MIRPrinter Printer(OS, Info);
   Printer.print(MF);
 }

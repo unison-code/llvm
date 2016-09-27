@@ -47,6 +47,11 @@ static cl::opt<cl::boolOrDefault>
 EnableGlobalMerge("arm-global-merge", cl::Hidden,
                   cl::desc("Enable the global merge pass"));
 
+static cl::opt<bool>
+DisableARMIfConversion("disable-arm-if-conversion", cl::Hidden,
+                       cl::desc("Disable ARM If-Conversion pass"),
+                       cl::init(false));
+
 extern "C" void LLVMInitializeARMTarget() {
   // Register the target.
   RegisterTargetMachine<ARMLETargetMachine> X(TheARMLETarget);
@@ -408,9 +413,11 @@ void ARMPassConfig::addPreSched2() {
       return this->TM->getSubtarget<ARMSubtarget>(F).restrictIT();
     }));
 
-    addPass(createIfConverter([this](const Function &F) {
-      return !this->TM->getSubtarget<ARMSubtarget>(F).isThumb1Only();
-    }));
+    if (!DisableARMIfConversion) {
+      addPass(createIfConverter([this](const Function &F) {
+            return !this->TM->getSubtarget<ARMSubtarget>(F).isThumb1Only();
+          }));
+    }
   }
   addPass(createThumb2ITBlockPass());
 }

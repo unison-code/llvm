@@ -98,6 +98,7 @@ namespace llvm {
   FunctionPass *createHexagonCallFrameInformation();
   FunctionPass *createHexagonCFGOptimizer();
   FunctionPass *createHexagonCommonGEP();
+  FunctionPass *createHexagonConstExtension();
   FunctionPass *createHexagonCopyToCombine();
   FunctionPass *createHexagonEarlyIfConversion();
   FunctionPass *createHexagonExpandCondsets();
@@ -263,6 +264,9 @@ void HexagonPassConfig::addPreRegAlloc() {
       addPass(createHexagonStoreWidening(), false);
     if (!DisableHardwareLoops)
       addPass(createHexagonHardwareLoops(), false);
+  }
+  if (!TM->Options.UnisonInputFile.empty()) {
+    addPass(createHexagonConstExtension(), false);
   }
 }
 

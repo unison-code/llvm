@@ -21,6 +21,7 @@
 #include "llvm/CodeGen/LinkAllAsmWriterComponents.h"
 #include "llvm/CodeGen/LinkAllCodegenComponents.h"
 #include "llvm/CodeGen/MIRParser/MIRParser.h"
+#include "llvm/CodeGen/UnisonDriver/UnisonDriver.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/LLVMContext.h"
@@ -286,6 +287,14 @@ static int compileModule(char **argv, LLVMContext &Context) {
   Options.MCOptions.MCUseDwarfDirectory = EnableDwarfDirectory;
   Options.MCOptions.AsmVerbose = AsmVerbose;
 
+  MachineFunctionPass * UD = nullptr;
+  if (Options.Unison || UnisonDriver::hasUnisonAnnotation(M.get())) {
+    SmallString<128> UnisonFile;
+    sys::fs::createTemporaryFile("unison", "mir", UnisonFile);
+    Options.UnisonInputFile = UnisonFile.str();
+    UD = new UnisonDriver(UnisonFile.str());
+  }
+
   std::unique_ptr<TargetMachine> Target(
       TheTarget->createTargetMachine(TheTriple.getTriple(), CPUStr, FeaturesStr,
                                      Options, RelocModel, CMModel, OLvl));
@@ -381,7 +390,7 @@ static int compileModule(char **argv, LLVMContext &Context) {
 
     // Ask the target to add backend passes as necessary.
     if (Target->addPassesToEmitFile(PM, *OS, FileType, NoVerify, StartBeforeID,
-                                    StartAfterID, StopAfterID, MIR.get())) {
+                                    StartAfterID, StopAfterID, MIR.get(), UD)) {
       errs() << argv[0] << ": target does not support generation of this"
              << " file type!\n";
       return 1;

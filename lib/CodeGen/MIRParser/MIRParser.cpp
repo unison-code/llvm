@@ -336,10 +336,8 @@ bool MIRParserImpl::initializeRegisterInfo(MachineFunction &MF,
                                            const yaml::MachineFunction &YamlMF,
                                            PerFunctionMIParsingState &PFS) {
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
-  assert(RegInfo.isSSA());
   if (!YamlMF.IsSSA)
     RegInfo.leaveSSA();
-  assert(RegInfo.tracksLiveness());
   if (!YamlMF.TracksRegLiveness)
     RegInfo.invalidateLiveness();
   RegInfo.enableSubRegLiveness(YamlMF.TracksSubRegLiveness);

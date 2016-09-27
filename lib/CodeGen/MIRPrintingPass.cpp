@@ -18,6 +18,9 @@
 #include "llvm/CodeGen/MIRYamlMapping.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/CodeGen/MachineFunction.h"
+
+#include "SpillPlacement.h"
 
 using namespace llvm;
 
@@ -28,23 +31,43 @@ namespace {
 struct MIRPrintingPass : public MachineFunctionPass {
   static char ID;
   raw_ostream &OS;
+  bool UnisonStyle;
+  bool FinalizeFunctions;
   std::string MachineFunctions;
 
-  MIRPrintingPass() : MachineFunctionPass(ID), OS(dbgs()) {}
-  MIRPrintingPass(raw_ostream &OS) : MachineFunctionPass(ID), OS(OS) {}
+  MIRPrintingPass() : MachineFunctionPass(ID), OS(dbgs()),
+                      UnisonStyle(false), FinalizeFunctions(false) {
+    initializeSpillPlacementPass(*PassRegistry::getPassRegistry());
+  }
+  MIRPrintingPass(raw_ostream &OS0,
+                  bool UnisonStyle0, bool FinalizeFunctions0) :
+    MachineFunctionPass(ID), OS(OS0),
+    UnisonStyle(UnisonStyle0), FinalizeFunctions(FinalizeFunctions0) {
+    initializeSpillPlacementPass(*PassRegistry::getPassRegistry());
+  }
 
   const char *getPassName() const override { return "MIR Printing Pass"; }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesAll();
+    if (UnisonStyle)
+      AU.addRequired<SpillPlacement>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
   bool runOnMachineFunction(MachineFunction &MF) override {
+    MIRAuxiliaryInfo info;
+    info.UnisonStyle = UnisonStyle;
+    info.SP = getAnalysisIfAvailable<SpillPlacement>();
     std::string Str;
     raw_string_ostream StrOS(Str);
-    printMIR(StrOS, MF);
+    printMIR(StrOS, MF, info);
     MachineFunctions.append(StrOS.str());
+    if (FinalizeFunctions) {
+      Module * M = const_cast<Module*>(MF.getFunction()->getParent());
+      printMIR(OS, *M);
+      OS << StrOS.str();
+    }
     return false;
   }
 
@@ -64,8 +87,10 @@ INITIALIZE_PASS(MIRPrintingPass, "mir-printer", "MIR Printer", false, false)
 
 namespace llvm {
 
-MachineFunctionPass *createPrintMIRPass(raw_ostream &OS) {
-  return new MIRPrintingPass(OS);
+  MachineFunctionPass *createPrintMIRPass(raw_ostream &OS,
+                                          bool UnisonStyle,
+                                          bool FinalizeFunctions) {
+    return new MIRPrintingPass(OS, UnisonStyle, FinalizeFunctions);
 }
 
 } // end namespace llvm

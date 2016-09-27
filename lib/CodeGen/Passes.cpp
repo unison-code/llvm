@@ -31,6 +31,9 @@
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/SymbolRewriter.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -74,6 +77,8 @@ static cl::opt<bool> DisableCopyProp("disable-copyprop", cl::Hidden,
     cl::desc("Disable Copy Propagation pass"));
 static cl::opt<bool> DisablePartialLibcallInlining("disable-partial-libcall-inlining",
     cl::Hidden, cl::desc("Disable Partial Libcall Inlining"));
+static cl::opt<bool> DisableIfConversion("disable-if-conversion", cl::Hidden,
+    cl::desc("Disable If-Conversion pass"));
 static cl::opt<bool> EnableImplicitNullChecks(
     "enable-implicit-null-checks",
     cl::desc("Fold null checks into faulting memory operations"),
@@ -173,6 +178,9 @@ static IdentifyingPassPtr overridePass(AnalysisID StandardID,
 
   if (StandardID == &MachineCopyPropagationID)
     return applyDisable(TargetID, DisableCopyProp);
+
+  if (StandardID == &IfConverterID)
+    return applyDisable(TargetID, DisableIfConversion);
 
   return TargetID;
 }
@@ -544,6 +552,18 @@ void TargetPassConfig::addMachinePasses() {
 
   // Run pre-ra passes.
   addPreRegAlloc();
+
+  // If a Unison input file has been created, populate it with the MIR
+  // representation of the code at this point. It will be used later as input to
+  // the Unison driver.
+  if (!TM->Options.UnisonInputFile.empty()) {
+    std::error_code EC;
+    static raw_fd_ostream Out(TM->Options.UnisonInputFile, EC, sys::fs::F_RW);
+    Out.SetUnbuffered();
+    addPass(&MemoryAliasID);
+    addPass(createPrintMIRPass(Out, true, true));
+    addPass(&CleanUnisonMetadataID);
+  }
 
   // Run register allocation and passes that are tightly coupled with it,
   // including phi elimination and scheduling.

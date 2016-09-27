@@ -33,7 +33,8 @@ public:
                            CodeGenFileType FileType, bool DisableVerify,
                            AnalysisID StartBefore, AnalysisID StartAfter,
                            AnalysisID StopAfter,
-                           MachineFunctionInitializer *MFInitializer) override;
+                           MachineFunctionInitializer *MFInitializer,
+                           MachineFunctionPass * UnisonDriver) override;
 };
 
 extern Target TheCppBackendTarget;

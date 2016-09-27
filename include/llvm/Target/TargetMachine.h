@@ -52,6 +52,7 @@ class formatted_raw_ostream;
 class raw_ostream;
 class raw_pwrite_stream;
 class TargetLoweringObjectFile;
+class MachineFunctionPass;
 
 // The old pass manager infrastructure is hidden in a legacy namespace now.
 namespace legacy {
@@ -240,7 +241,8 @@ public:
       PassManagerBase &, raw_pwrite_stream &, CodeGenFileType,
       bool /*DisableVerify*/ = true, AnalysisID /*StartBefore*/ = nullptr,
       AnalysisID /*StartAfter*/ = nullptr, AnalysisID /*StopAfter*/ = nullptr,
-      MachineFunctionInitializer * /*MFInitializer*/ = nullptr) {
+      MachineFunctionInitializer * /*MFInitializer*/ = nullptr,
+      MachineFunctionPass * /*UnisonDriver*/ = nullptr) {
     return true;
   }
 
@@ -295,7 +297,8 @@ public:
       PassManagerBase &PM, raw_pwrite_stream &Out, CodeGenFileType FileType,
       bool DisableVerify = true, AnalysisID StartBefore = nullptr,
       AnalysisID StartAfter = nullptr, AnalysisID StopAfter = nullptr,
-      MachineFunctionInitializer *MFInitializer = nullptr) override;
+      MachineFunctionInitializer *MFInitializer = nullptr,
+      MachineFunctionPass *UnisonDriver = nullptr) override;
 
   /// Add passes to the specified pass manager to get machine code emitted with
   /// the MCJIT. This method returns true if machine code is not supported. It
