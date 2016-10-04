@@ -186,9 +186,11 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   std::string Uni = makeTempFile("uni");
 
+  std::string Goal = MF.getFunction()->optForSize() ? "size" : "speed";
   std::vector<std::string> ImportArgv =
     { "--function=" + MF.getName().str(),
-      "--maxblocksize=" + std::to_string(UnisonMaxBlockSize) };
+      "--maxblocksize=" + std::to_string(UnisonMaxBlockSize),
+      "--goal=" + Goal};
   insertFlags(ImportArgv, UnisonImportFlags);
 
   ensure(runTool("import", PreMir, Uni, ImportArgv),
