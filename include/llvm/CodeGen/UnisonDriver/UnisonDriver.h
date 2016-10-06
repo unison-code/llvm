@@ -133,14 +133,17 @@ namespace llvm {
 
     void ensure(bool res, const char* msg);
 
-    std::string makeTempFile(const char* Suffix);
+    std::string makeTempPath(const std::string & Suffix);
 
     bool runTool(const char* tool, std::string input, std::string output,
                  std::vector<std::string> & extra);
 
     void cleanPaths();
 
-    void insertFlags(std::vector<std::string> & argv, std::string & flags);
+    void removeFile(std::string & path);
+
+    void insertFlags(std::vector<std::string> & argv, std::string & flags,
+                     bool lintFlag = false);
 
   };
 

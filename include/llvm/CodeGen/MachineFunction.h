@@ -220,6 +220,10 @@ public:
   /// does already exist, allocate one.
   MachineJumpTableInfo *getOrCreateJumpTableInfo(unsigned JTEntryKind);
 
+  /// deleteJumpTableInfo - Delete the JumpTableInfo for this function.
+  ///
+  void deleteJumpTableInfo();
+
   /// getConstantPool - Return the constant pool object for the current
   /// function.
   ///
