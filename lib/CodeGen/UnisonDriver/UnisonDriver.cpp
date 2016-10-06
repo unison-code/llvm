@@ -186,7 +186,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 0. Create baseline *.asm.mir
 
-  AsmMir = makeTempFile("asm.mir");
+  AsmMir = makeTempPath("asm.mir");
   std::error_code EC;
   raw_fd_ostream OS(AsmMir, EC, sys::fs::F_RW);
   FunctionPass *MIRE = createPrintMIRPass(OS, true, true);
@@ -197,7 +197,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 1. Import: *.mir --> *.uni
 
-  std::string Uni = makeTempFile("uni");
+  std::string Uni = makeTempPath("uni");
 
   std::string Goal = MF.getFunction()->optForSize() ? "size" : "speed";
   std::vector<std::string> ImportArgv =
@@ -211,7 +211,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 2. Linearize: *.uni --> *.lssa.uni
 
-  std::string Lssa = makeTempFile("lssa.uni");
+  std::string Lssa = makeTempPath("lssa.uni");
 
   std::vector<std::string> LinearizeArgv;
   insertFlags(LinearizeArgv, UnisonLinearizeFlags, UnisonLint);
@@ -221,7 +221,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 3. Extend: *.lssa.uni --> *.ext.uni
 
-  std::string Ext = makeTempFile("ext.uni");
+  std::string Ext = makeTempPath("ext.uni");
 
   std::vector<std::string> ExtendArgv;
   insertFlags(ExtendArgv, UnisonExtendFlags, UnisonLint);
@@ -231,7 +231,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 4. Augment: *.ext.uni --> *.alt.uni
 
-  std::string Alt = makeTempFile("alt.uni");
+  std::string Alt = makeTempPath("alt.uni");
 
   std::vector<std::string> AugmentArgv;
   insertFlags(AugmentArgv, UnisonAugmentFlags, UnisonLint);
@@ -241,7 +241,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 5. Normalize: *.asm.mir --> *.llvm.mir
 
-  std::string LlvmMir = makeTempFile("llvm.mir");
+  std::string LlvmMir = makeTempPath("llvm.mir");
 
   std::vector<std::string> NormalizeArgv;
   insertFlags(NormalizeArgv, UnisonNormalizeFlags);
@@ -251,7 +251,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 6. Model: *.alt.uni, *.llvm.mir --> *.json
 
-  std::string Json = makeTempFile("json");
+  std::string Json = makeTempPath("json");
 
   std::vector<std::string> ModelArgv =
     {"--basefile=" + LlvmMir, "+RTS", "-K20M", "-RTS" };
@@ -262,7 +262,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 7. Presolver: *.json --> *.ext.json
 
-  std::string ExtJson = makeTempFile("ext.json");
+  std::string ExtJson = makeTempPath("ext.json");
 
   std::vector<std::string> PresolverArgv =
     { "gecode-presolver", "-o", ExtJson };
@@ -274,7 +274,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 8. Solver: *.ext.json --> *.out.json
 
-  std::string OutJson = makeTempFile("out.json");
+  std::string OutJson = makeTempPath("out.json");
 
   std::vector<std::string> SolverArgv =
     { "gecode-solver", "-o", OutJson, "--verbose" };
@@ -286,7 +286,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 9. Export: *.alt.uni, *.out.json, *.llvm.mir --> *.unison.mir
 
-  std::string Unisonmir = makeTempFile("unison.mir");
+  std::string Unisonmir = makeTempPath("unison.mir");
 
   std::vector<std::string> ExportArgv =
     { "--basefile=" + LlvmMir, "--solfile=" + OutJson };
@@ -355,7 +355,7 @@ void UnisonDriver::ensure(bool res, const char* msg) {
   }
 }
 
-std::string UnisonDriver::makeTempFile(const char* Suffix) {
+std::string UnisonDriver::makeTempPath(const std::string & Suffix) {
   SmallString<128> rpath;
   std::error_code errc =
     sys::fs::createTemporaryFile(Twine("unison"), StringRef(Suffix), rpath);
@@ -383,13 +383,17 @@ bool UnisonDriver::runTool(const char* tool, std::string input,
 void UnisonDriver::cleanPaths() {
   if (UnisonNoClean)
     return;
-  for (auto I = TempPaths.begin(), E = TempPaths.end(); I != E; I++) {
-    std::error_code errc = sys::fs::remove(Twine(*I), false);
-    if (errc) {
-      errs() << "Temporary file (" << *I << ") could not be removed!\n";
-    }
+  for (auto P : TempPaths) {
+    removeFile(P);
   }
   TempPaths.clear();
+}
+
+void UnisonDriver::removeFile(std::string & path) {
+  std::error_code errc = sys::fs::remove(Twine(path), false);
+  if (errc) {
+    errs() << "Temporary file (" << path << ") could not be removed!\n";
+  }
 }
 
 void UnisonDriver::insertFlags(std::vector<std::string> & argv,
