@@ -303,6 +303,8 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   MF.RenumberBlocks(nullptr);
 
+  MF.deleteJumpTableInfo();
+
   LLVMContext &Context = getGlobalContext();
   SMDiagnostic ErrDiag;
   std::unique_ptr<Module> M;

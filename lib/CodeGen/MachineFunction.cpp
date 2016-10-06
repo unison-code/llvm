@@ -162,6 +162,12 @@ getOrCreateJumpTableInfo(unsigned EntryKind) {
   return JumpTableInfo;
 }
 
+/// Delete the JumpTableInfo for this function.
+void MachineFunction::deleteJumpTableInfo() {
+  Allocator.Deallocate(JumpTableInfo);
+  JumpTableInfo = nullptr;
+}
+
 /// Should we be emitting segmented stack stuff for the function
 bool MachineFunction::shouldSplitStack() {
   return getFunction()->hasFnAttribute("split-stack");
