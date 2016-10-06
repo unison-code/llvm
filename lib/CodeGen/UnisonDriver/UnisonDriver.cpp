@@ -74,6 +74,11 @@ static cl::opt<bool> UnisonNoClean("unison-no-clean",
     cl::desc("Do not clean Unison temporary files"),
     cl::init(false));
 
+static cl::opt<bool> UnisonLint("unison-lint",
+    cl::Optional,
+    cl::desc("Run Unison lint on the output of every Unison command (for debugging purposes)"),
+    cl::init(false));
+
 static cl::opt<std::string> UnisonImportFlags("unison-import-flags",
     cl::Optional,
     cl::desc("'uni import' flags"),
@@ -191,7 +196,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
     { "--function=" + MF.getName().str(),
       "--maxblocksize=" + std::to_string(UnisonMaxBlockSize),
       "--goal=" + Goal};
-  insertFlags(ImportArgv, UnisonImportFlags);
+  insertFlags(ImportArgv, UnisonImportFlags, UnisonLint);
 
   ensure(runTool("import", PreMir, Uni, ImportArgv),
          "'uni import' failed.");
@@ -201,7 +206,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   std::string Lssa = makeTempFile("lssa.uni");
 
   std::vector<std::string> LinearizeArgv;
-  insertFlags(LinearizeArgv, UnisonLinearizeFlags);
+  insertFlags(LinearizeArgv, UnisonLinearizeFlags, UnisonLint);
 
   ensure(runTool("linearize", Uni, Lssa, LinearizeArgv),
          "'uni linearize' failed.");
@@ -211,7 +216,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   std::string Ext = makeTempFile("ext.uni");
 
   std::vector<std::string> ExtendArgv;
-  insertFlags(ExtendArgv, UnisonExtendFlags);
+  insertFlags(ExtendArgv, UnisonExtendFlags, UnisonLint);
 
   ensure(runTool("extend", Lssa, Ext, ExtendArgv),
          "'uni extend' failed.");
@@ -221,7 +226,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   std::string Alt = makeTempFile("alt.uni");
 
   std::vector<std::string> AugmentArgv;
-  insertFlags(AugmentArgv, UnisonAugmentFlags);
+  insertFlags(AugmentArgv, UnisonAugmentFlags, UnisonLint);
 
   ensure(runTool("augment", Ext, Alt, AugmentArgv),
          "'uni augment' failed.");
@@ -378,12 +383,14 @@ void UnisonDriver::cleanPaths() {
 }
 
 void UnisonDriver::insertFlags(std::vector<std::string> & argv,
-                               std::string & flags) {
+                               std::string & flags, bool lintFlag) {
   std::string flag;
   std::stringstream s(flags);
   while (s >> flag) {
     argv.push_back(flag);
   }
+  if (lintFlag)
+    argv.push_back("--lint");
 }
 
 char UnisonDriver::ID = 0;
