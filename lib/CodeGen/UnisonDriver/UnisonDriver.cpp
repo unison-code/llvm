@@ -126,6 +126,8 @@ static cl::opt<std::string> UnisonExportFlags("unison-export-flags",
 
 UnisonDriver::UnisonDriver() : MachineFunctionPass(ID), PreMir("") {}
 
+extern cl::opt<std::string> UnisonSingleFunction;
+
 UnisonDriver::UnisonDriver(StringRef Pre) :
   MachineFunctionPass(ID),
   PreMir(Pre)
@@ -147,17 +149,24 @@ void UnisonDriver::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
-
-  const TargetMachine * TM = &MF.getTarget();
+  const TargetMachine *TM = &MF.getTarget();
 
   // Run Unison for MF if either -unison is used or the function is
   // annotated with __attribute__((annotate("unison")))
-  const Function * F = MF.getFunction();
+  const Function *F = MF.getFunction();
   if (!(TM->Options.Unison || hasUnisonAnnotation(F->getParent(), F))) {
     cleanPaths();
     return false;
   }
 
+  // Using -unison-single-function on the command line overrides the other ways
+  // of activating Unison.
+  const StringRef &UnisonSingleFunctionStr = UnisonSingleFunction;
+  if (!UnisonSingleFunctionStr.equals(StringRef("")) &&
+      !MF.getName().equals(UnisonSingleFunction)) {
+    cleanPaths();
+    return false;
+  }
   // Load Unison paths only if we are really going to use them
   UnisonPath.load("uni");
   PresolverPath.load("gecode-presolver");
@@ -174,7 +183,6 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
     report_fatal_error("Target unavailable in Unison", false);
   }
   Target = "--target="+TargetName;
-
 
   // 0. Create baseline *.asm.mir
 

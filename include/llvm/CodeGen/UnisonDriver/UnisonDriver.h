@@ -140,7 +140,8 @@ namespace llvm {
 
     void cleanPaths();
 
-    void insertFlags(std::vector<std::string> & argv, std::string & flags);
+    void insertFlags(std::vector<std::string> & argv, std::string & flags,
+                     bool lintFlag = false);
 
   };
 

@@ -277,6 +277,12 @@ UnisonMIR("unison-mir",
           cl::desc("Use Unison-style MIR"),
           cl::init(false));
 
+cl::opt<std::string>
+UnisonSingleFunction("unison-single-function",
+                     cl::Optional,
+                     cl::desc("single function to run with Unison"),
+                     cl::init(""));
+
 // Common utility function tightly tied to the options listed here. Initializes
 // a TargetOptions object with CodeGen flags and returns it.
 static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
@@ -308,7 +314,8 @@ static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
   Options.EABIVersion = EABIVersion;
   Options.DebuggerTuning = DebuggerTuningOpt;
 
-  Options.Unison = Unison;
+  const StringRef &UnisonSingleFunctionStr = UnisonSingleFunction;
+  Options.Unison = Unison || !UnisonSingleFunctionStr.equals("");
   Options.UnisonMIR = UnisonMIR;
 
   return Options;
