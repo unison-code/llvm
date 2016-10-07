@@ -33,7 +33,7 @@
 
 # Lightweight base image
 
-language: c
+language: cpp
 dist: trusty
 sudo: required
 
