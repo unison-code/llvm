@@ -124,22 +124,21 @@ static cl::opt<std::string> UnisonExportFlags("unison-export-flags",
     cl::desc("'uni export' flags"),
     cl::init(""));
 
-UnisonDriver::UnisonDriver() : MachineFunctionPass(ID), PreMir("") {}
+UnisonDriver::UnisonDriver() : MachineFunctionPass(ID), Base("") {}
 
 extern cl::opt<std::string> UnisonSingleFunction;
 
 UnisonDriver::UnisonDriver(StringRef Pre) :
-  MachineFunctionPass(ID),
-  PreMir(Pre)
- {
+  MachineFunctionPass(ID) {
+  Base = Pre.substr(0, Pre.size() - std::string(".mir").size());
   initializeUnisonDriverPass(*PassRegistry::getPassRegistry());
   initializeSpillPlacementPass(*PassRegistry::getPassRegistry());
 }
 
 UnisonDriver::~UnisonDriver() {
   if (!UnisonNoClean) {
-    sys::fs::remove(Twine(PreMir), true);
-    sys::fs::remove(Twine(AsmMir), true);
+    std::string PreMir = Base + ".mir";
+    removeFile(PreMir);
   }
 }
 
@@ -186,7 +185,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   // 0. Create baseline *.asm.mir
 
-  AsmMir = makeTempPath("asm.mir");
+  std::string AsmMir = makeTempPath("asm.mir");
   std::error_code EC;
   raw_fd_ostream OS(AsmMir, EC, sys::fs::F_RW);
   FunctionPass *MIRE = createPrintMIRPass(OS, true, true);
@@ -194,6 +193,8 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   MIRE->runOnFunction(*const_cast<Function*>(F));
   OS.flush();
   OS.close();
+
+  std::string PreMir = Base + ".mir";
 
   // 1. Import: *.mir --> *.uni
 
@@ -356,14 +357,7 @@ void UnisonDriver::ensure(bool res, const char* msg) {
 }
 
 std::string UnisonDriver::makeTempPath(const std::string & Suffix) {
-  SmallString<128> rpath;
-  std::error_code errc =
-    sys::fs::createTemporaryFile(Twine("unison"), StringRef(Suffix), rpath);
-  if (errc) {
-    errs() << "Failed to create temporary file!\n";
-    std::abort();
-  }
-  std::string spath(rpath.c_str());
+  std::string spath = Base + "." + std::string(Suffix);
   TempPaths.push_back(spath);
   return spath;
 }
