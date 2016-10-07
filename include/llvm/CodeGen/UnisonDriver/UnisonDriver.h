@@ -99,7 +99,7 @@ namespace llvm {
       const StringRef* m_redir[3]; // in, out, err
     };
 
-    std::string PreMir; // File path to Unison input
+    std::string Base; // Basename for all Unison files related to the function
 
     ProgramPath UnisonPath;
     ProgramPath PresolverPath;
@@ -107,8 +107,6 @@ namespace llvm {
 
     std::string Target;
 
-
-    std::string AsmMir; //basefile path
     SmallVector<std::string, 8> TempPaths;
 
   public:
