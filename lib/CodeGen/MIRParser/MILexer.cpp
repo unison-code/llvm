@@ -404,6 +404,24 @@ static Cursor maybeLexExternalSymbol(
                  ErrorCallback);
 }
 
+static Cursor maybeLexMCSymbol(
+    Cursor C, MIToken &Token,
+    function_ref<void(StringRef::iterator Loc, const Twine &)> ErrorCallback) {
+  if (!C.remaining().startswith("<mcsymbol"))
+    return None;
+  C.advance(9);
+  Cursor C1 = skipWhitespace(C);
+  Cursor C2 = lexName(C1, Token, MIToken::MCSymbol, /*PrefixLength=*/0,
+                      ErrorCallback);
+  if (C2.peek() == '>') {
+    C2.advance();
+    return C2;
+  } else {
+    ErrorCallback(C2.location(), "MCSymbol not closed with '>'");
+    return None;
+  }
+}
+
 static bool isValidHexFloatingPointPrefix(char C) {
   return C == 'H' || C == 'K' || C == 'L' || C == 'M';
 }
@@ -587,6 +605,8 @@ StringRef llvm::lexMIToken(
   if (Cursor R = maybeLexGlobalValue(C, Token, ErrorCallback))
     return R.remaining();
   if (Cursor R = maybeLexExternalSymbol(C, Token, ErrorCallback))
+    return R.remaining();
+  if (Cursor R = maybeLexMCSymbol(C, Token, ErrorCallback))
     return R.remaining();
   if (Cursor R = maybeLexHexFloatingPointLiteral(C, Token))
     return R.remaining();

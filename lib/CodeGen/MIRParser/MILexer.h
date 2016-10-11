@@ -109,6 +109,7 @@ struct MIToken {
     NamedGlobalValue,
     GlobalValue,
     ExternalSymbol,
+    MCSymbol,
 
     // Other tokens
     IntegerLiteral,

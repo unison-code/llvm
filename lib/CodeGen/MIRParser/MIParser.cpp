@@ -139,6 +139,7 @@ public:
   bool parseConstantPoolIndexOperand(MachineOperand &Dest);
   bool parseJumpTableIndexOperand(MachineOperand &Dest);
   bool parseExternalSymbolOperand(MachineOperand &Dest);
+  bool parseMCSymbolOperand(MachineOperand &Dest);
   bool parseMDNode(MDNode *&Node);
   bool parseMetadataOperand(MachineOperand &Dest);
   bool parseCFIOffset(int &Offset);
@@ -1191,6 +1192,15 @@ bool MIParser::parseExternalSymbolOperand(MachineOperand &Dest) {
   return false;
 }
 
+bool MIParser::parseMCSymbolOperand(MachineOperand &Dest) {
+  assert(Token.is(MIToken::MCSymbol));
+  MCSymbol *Symbol =
+    MF.getMMI().getContext().getOrCreateSymbol(Token.stringValue());
+  lex();
+  Dest = MachineOperand::CreateMCSymbol(Symbol);
+  return false;
+}
+
 bool MIParser::parseMDNode(MDNode *&Node) {
   assert(Token.is(MIToken::exclaim));
   auto Loc = Token.location();
@@ -1436,6 +1446,8 @@ bool MIParser::parseMachineOperand(MachineOperand &Dest,
     return parseJumpTableIndexOperand(Dest);
   case MIToken::ExternalSymbol:
     return parseExternalSymbolOperand(Dest);
+  case MIToken::MCSymbol:
+    return parseMCSymbolOperand(Dest);
   case MIToken::exclaim:
     return parseMetadataOperand(Dest);
   case MIToken::kw_cfi_same_value:
@@ -1460,7 +1472,6 @@ bool MIParser::parseMachineOperand(MachineOperand &Dest,
     }
   // fallthrough
   default:
-    // FIXME: Parse the MCSymbol machine operand.
     return error("expected a machine operand");
   }
   return false;
