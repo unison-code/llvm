@@ -53,6 +53,10 @@ install:
   - sudo apt-get -qq update
   - sudo apt-get install -y ninja
   - export CXX="g++-5" CC="gcc-5"
+  - wget http://www.cmake.org/files/v3.5/cmake-3.5.1.tar.gz
+  - tar xf cmake-3.5.1.tar.gz
+  - cd cmake-3.5.1 && ./configure && make && sudo make install && cd -
+  - update-alternatives --install /usr/bin/cmake cmake /usr/local/bin/cmake 1 --force
 
 # Build LLVM
 
