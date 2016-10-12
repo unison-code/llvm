@@ -52,6 +52,7 @@ addons:
 install:
   - sudo apt-get -qq update
   - sudo apt-get install -y ninja
+  - export CXX="g++-5" CC="gcc-5"
 
 # Build LLVM
 
