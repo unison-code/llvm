@@ -50,8 +50,6 @@ addons:
 # Install prerequisites
 
 install:
-  - sudo apt-get -qq update
-  - sudo apt-get install -y ninja
   - export CXX="g++-5" CC="gcc-5"
   - wget http://www.cmake.org/files/v3.5/cmake-3.5.1.tar.gz
   - tar xf cmake-3.5.1.tar.gz
@@ -62,5 +60,5 @@ install:
 
 script:
   - mkdir build
-  - cd build && cmake -G "Ninja" .. && cd -
-  - cd build && ninja && cd -
+  - cd build && cmake .. && cd -
+  - cd build && make && cd -
