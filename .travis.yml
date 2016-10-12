@@ -31,11 +31,21 @@
 #  POSSIBILITY OF SUCH DAMAGE.
 #
 
-# Lightweight base image
+# Base image
 
 language: cpp
 dist: trusty
 sudo: required
+
+# Use a modern GCC
+
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - g++-5
+      - gcc-5
 
 # Install prerequisites
 
