@@ -60,5 +60,5 @@ install:
 
 script:
   - mkdir build
-  - cd build && cmake .. && cd -
-  - cd build && make && cd -
+  - cd build && cmake -DLLVM_TARGETS_TO_BUILD="Hexagon;ARM;Mips" .. && cd -
+  - cd build && make llc && cd -
