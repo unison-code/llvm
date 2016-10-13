@@ -79,6 +79,11 @@ static cl::opt<bool> UnisonLint("unison-lint",
     cl::desc("Run Unison lint on the output of every Unison command (for debugging purposes)"),
     cl::init(false));
 
+static cl::opt<unsigned int> UnisonMaxInstrs("unison-max-instrs",
+    cl::Optional,
+    cl::desc("Maximum number of instructions in a function for which Unison is run (0 for unlimited)"),
+    cl::init(0));
+
 static cl::opt<std::string> UnisonImportFlags("unison-import-flags",
     cl::Optional,
     cl::desc("'uni import' flags"),
@@ -166,6 +171,24 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
     cleanPaths();
     return false;
   }
+
+  // If a maximum number of instructions is given and the function exceeds it,
+  // do not run Unison.
+  if (UnisonMaxInstrs > 0) {
+    unsigned instrs = 0;
+    for (auto & MBB : MF) {
+      instrs += MBB.size();
+    }
+    if (instrs > UnisonMaxInstrs) {
+      if (UnisonVerbose) {
+        errs() << "ignored " << MF.getName().str()
+               << ": too many instructions (" << instrs << ")\n";
+      }
+      cleanPaths();
+      return false;
+    }
+  }
+
   // Load Unison paths only if we are really going to use them
   UnisonPath.load("uni");
   PresolverPath.load("gecode-presolver");
