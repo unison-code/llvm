@@ -80,6 +80,7 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeUnreachableMachineBlockElimPass(Registry);
   initializeVirtRegMapPass(Registry);
   initializeVirtRegRewriterPass(Registry);
+  initializeWeightedIPBPass(Registry);
   initializeWinEHPreparePass(Registry);
 }
 

@@ -607,6 +607,10 @@ namespace llvm {
   /// in addition to the Itanium LSDA based personalities.
   FunctionPass *createWinEHPass(const TargetMachine *TM);
 
+  /// WeightedIPB - This analysis computes instructions per bundle weighted by
+  /// estimated execution frequency.
+  extern char &WeightedIPBID;
+
   /// createSjLjEHPreparePass - This pass adapts exception handling code to use
   /// the GCC-style builtin setjmp/longjmp (sjlj) to handling EH control flow.
   ///

@@ -90,6 +90,8 @@ static cl::opt<bool> VerifyMachineCode("verify-machineinstrs", cl::Hidden,
     cl::desc("Verify generated machine code"),
     cl::init(false),
     cl::ZeroOrMore);
+static cl::opt<bool> ComputeIPB("compute-ipb", cl::Hidden,
+    cl::desc("Compute instructions per bundle"));
 
 static cl::opt<std::string>
 PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
@@ -608,6 +610,10 @@ void TargetPassConfig::addMachinePasses() {
     addBlockPlacement();
 
   addPreEmitPass();
+
+  if (ComputeIPB) {
+    addPass(&WeightedIPBID);
+  }
 
   addPass(&FuncletLayoutID, false);
 
