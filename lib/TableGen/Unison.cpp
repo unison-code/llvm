@@ -188,16 +188,19 @@ namespace llvm {
   /// Executes given constraints, meaning replaces names with alias names
   void execute_constraints(std::vector<string_pair> *outs, std::string cons) {
     if (cons.size() == 0) return;
-    std::vector<std::string> list = split(cons, '=');
-    if (list.size() != 2) return;
-    std::string first = escape(eatWhiteSpace(list[0]).substr(1));
-    std::string second = escape(eatWhiteSpace(list[1]).substr(1));
-    for (unsigned int i = 0; i < outs->size(); i++) {
-      if ((*outs)[i].second == first) {
-        (*outs)[i].second = second;
-      }
-      else if ((*outs)[i].second == second) {
-        (*outs)[i].second = first;
+    for (std::string con : split(cons, ',')) {
+      std::string con0 = eatWhiteSpace(con);
+      std::vector<std::string> list = split(con0, '=');
+      assert(list.size() == 2);
+      std::string first = escape(eatWhiteSpace(list[0]).substr(1));
+      std::string second = escape(eatWhiteSpace(list[1]).substr(1));
+      for (unsigned int i = 0; i < outs->size(); i++) {
+        if ((*outs)[i].second == first) {
+          (*outs)[i].second = second;
+        }
+        else if ((*outs)[i].second == second) {
+          (*outs)[i].second = first;
+        }
       }
     }
   }
