@@ -40,7 +40,9 @@ namespace {
     }
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
-      AU.addRequired<SpillPlacement>();
+      if (WeightIPB) {
+        AU.addRequired<SpillPlacement>();
+      }
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
@@ -84,10 +86,11 @@ bool WeightedIPB::runOnMachineFunction(MachineFunction &MF) {
       }
     }
     ipb[MBB.getNumber()] = (double)blockInstructions / (double)blockBundles;
-    totalFreq += (double)SP->getBlockFrequency(MBB.getNumber()).getFrequency();
-    SP->getBlockFrequency(MBB.getNumber()).getFrequency();
     totalInstructions += blockInstructions;
     totalBundles += blockBundles;
+    if (WeightIPB) {
+      totalFreq += (double)SP->getBlockFrequency(MBB.getNumber()).getFrequency();
+    }
   }
 
   if (WeightIPB) {
