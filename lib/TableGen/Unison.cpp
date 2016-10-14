@@ -190,6 +190,7 @@ namespace llvm {
     if (cons.size() == 0) return;
     for (std::string con : split(cons, ',')) {
       std::string con0 = eatWhiteSpace(con);
+      if (con0.find("@earlyclobber") == 0) continue;
       std::vector<std::string> list = split(con0, '=');
       assert(list.size() == 2);
       std::string first = escape(eatWhiteSpace(list[0]).substr(1));
