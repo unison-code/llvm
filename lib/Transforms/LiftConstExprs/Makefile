@@ -1,5 +1,5 @@
 LEVEL = ../../..
-LIBRARYNAME = BreakConstantsGEPs
+LIBRARYNAME = LiftConstExprs
 LOADABLE_MODULE = 1
 USEDLIBS =
 
@@ -7,7 +7,7 @@ USEDLIBS =
 # from the hello plugin.
 ifneq ($(REQUIRES_RTTI), 1)
 ifneq ($(REQUIRES_EH), 1)
-EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/BreakConstantsGEPs.exports
+EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/LiftConstExprs.exports
 endif
 endif
 

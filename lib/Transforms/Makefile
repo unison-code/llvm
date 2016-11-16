@@ -8,7 +8,7 @@
 ##===----------------------------------------------------------------------===##
 
 LEVEL = ../..
-PARALLEL_DIRS = Utils Instrumentation Scalar InstCombine IPO Vectorize Hello ObjCARC AttachExecFreqMetadata LowerSelect LowerGetElementPtr BreakConstantsGEPs
+PARALLEL_DIRS = Utils Instrumentation Scalar InstCombine IPO Vectorize Hello ObjCARC AttachExecFreqMetadata LowerSelect LowerGetElementPtr LiftConstExprs
 
 include $(LEVEL)/Makefile.config
 
