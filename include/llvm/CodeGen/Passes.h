@@ -626,6 +626,10 @@ namespace llvm {
   /// selection.
   extern char &ISelCostID;
 
+  /// DumpISelWCosts - This pass dumps result of instruction selection, with
+  /// costs attached.
+  extern char &DumpISelWCostsID;
+
   /// ExpandISelPseudos - This pass expands pseudo-instructions.
   extern char &ExpandISelPseudosID;
 
