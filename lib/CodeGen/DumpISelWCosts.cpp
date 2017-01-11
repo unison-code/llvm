@@ -75,13 +75,13 @@ bool DumpISelWCosts::runOnMachineFunction(MachineFunction &MF) {
     const ConstantInt *ci_f = (const ConstantInt *)c_md_f->getValue();
     int f = ci_f->getLimitedValue();
 
-    errs() << toCostString(f) << ": " << MBB->getFullName() << "\n";
+    errs() << toCostString(f) << "  " << MBB->getFullName() << "\n";
 
     for (MachineBasicBlock::iterator MBBI = MBB->begin(), MBBE = MBB->end();
          MBBI != MBBE; ) {
       MachineInstr *MI = MBBI++;
       int c =  model.computeInstrLatency(MI);
-      errs() << toCostString(c) << ":    ";
+      errs() << toCostString(c) << "    ";
       MI->print(errs());
     }
   }
