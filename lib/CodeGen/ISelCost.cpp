@@ -80,7 +80,7 @@ bool ISelCost::runOnMachineFunction(MachineFunction &MF) {
     }
   }
 
-  errs() << "{\n \"cycles\": " << cycles << ",\n \"size\": " << size << "\n}\n";
+  outs() << "{\n \"cycles\": " << cycles << ",\n \"size\": " << size << "\n}\n";
 
   return false;
 
