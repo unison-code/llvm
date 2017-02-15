@@ -34,6 +34,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
+using std::map;
 
 namespace {
 
@@ -45,7 +46,17 @@ struct AttachExecFreqMetadata : public FunctionPass {
     runOnFunction(Function& f) {
         BFI = &getAnalysis<BlockFrequencyInfoWrapperPass>().getBFI();
         for (Function::iterator i = f.begin(), e = f.end(); i != e; ++i) {
-            runOnBasicBlock(*i);
+            BasicBlock& bb = *i;
+            blockFrequencies[&bb] = getBlockFreq(bb);
+        }
+
+        scaleFrequencies();
+
+        for (map<BasicBlock*, uint64_t>::iterator it = blockFrequencies.begin();
+             it != blockFrequencies.end();
+             ++it)
+        {
+            attachExecFreqAsMetadata(*(it->first), it->second);
         }
 
         return false;
@@ -59,22 +70,16 @@ struct AttachExecFreqMetadata : public FunctionPass {
     }
 
   protected:
-    /// Invoked on every basic block inside the function.
     void
-    runOnBasicBlock(BasicBlock& bb) {
-        bb.getTerminator()->setMetadata("exec_freq", getBlockFreqMetadata(bb));
-    }
-
-    /// Produces basic block frequency information as metadata.
-    MDNode*
-    getBlockFreqMetadata(BasicBlock& bb) {
+    attachExecFreqAsMetadata(BasicBlock& bb, uint64_t freq) {
         Value* freq_value =
             ConstantInt::get(IntegerType::get(bb.getContext(), 64),
-                             getBlockFreq(bb),
+                             freq,
                              false);
         Metadata* freq_value_as_meta = ValueAsMetadata::get(freq_value);
-        return MDNode::get(bb.getContext(),
-                           ArrayRef<Metadata*>(freq_value_as_meta));
+        MDNode* md_node = MDNode::get(bb.getContext(),
+                                      ArrayRef<Metadata*>(freq_value_as_meta));
+        bb.getTerminator()->setMetadata("exec_freq", md_node);
     }
 
     /// Gets the block frequency as an integer.
@@ -83,9 +88,37 @@ struct AttachExecFreqMetadata : public FunctionPass {
       return BFI->getBlockFreq(&bb).getFrequency();
     }
 
+    /// Scales down all frequencies.
+    void
+    scaleFrequencies(void) {
+        // Find largest frequency
+        uint64_t max = 0;
+        for (map<BasicBlock*, uint64_t>::iterator it = blockFrequencies.begin();
+             it != blockFrequencies.end();
+             ++it)
+        {
+            uint64_t freq = it->second;
+            if (freq > max) max = freq;
+        }
+
+        if (max < FREQ_LIMIT) return;
+
+        // Scale down all frequencies
+        double factor = (double) FREQ_LIMIT / (double) max;
+        for (map<BasicBlock*, uint64_t>::iterator it = blockFrequencies.begin();
+             it != blockFrequencies.end();
+             ++it)
+        {
+            BasicBlock* bb = it->first;
+            uint64_t freq = it->second;
+            blockFrequencies[bb] = static_cast<uint64_t>(ceil(freq * factor));
+        }
+    }
+
   private:
     BlockFrequencyInfo* BFI;
-
+    map<BasicBlock*, uint64_t> blockFrequencies;
+    const uint64_t FREQ_LIMIT = 100000;
 };
 
 }
