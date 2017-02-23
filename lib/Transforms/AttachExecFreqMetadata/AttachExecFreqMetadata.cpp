@@ -118,7 +118,7 @@ struct AttachExecFreqMetadata : public FunctionPass {
   private:
     BlockFrequencyInfo* BFI;
     map<BasicBlock*, uint64_t> blockFrequencies;
-    const uint64_t FREQ_LIMIT = 100000;
+    const uint64_t FREQ_LIMIT = 10000;
 };
 
 }
