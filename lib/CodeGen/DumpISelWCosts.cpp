@@ -68,7 +68,7 @@ bool DumpISelWCosts::runOnMachineFunction(MachineFunction &MF) {
     assert(MBB);
     const MDNode *fn =
         MBB->getBasicBlock()->getTerminator()->getMetadata("exec_freq");
-    assert(fn);
+    assert(fn && "No block execution frequency metadata!");
     const ConstantAsMetadata *c_md_f =
       (const ConstantAsMetadata *)(fn->getOperand(0).get());
     assert(c_md_f);
