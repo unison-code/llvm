@@ -76,26 +76,19 @@ bool TrivialBranchFolding::runOnMachineFunction(MachineFunction& MF) {
 
 
 bool TrivialBranchFolding::runOnMachineBasicBlock(MachineBasicBlock& MBB) {
-
   bool Changed = false;
 
+  errs() << MBB;
+
   if (MBB.canFallThrough()) {
-    MachineBasicBlock *TBB = 0, *FBB = 0;
-    SmallVector<MachineOperand, 4> Cond;
-    TII->AnalyzeBranch(MBB, TBB, FBB, Cond);
-    if (TBB != NULL && FBB != NULL && (MBB.isLayoutSuccessor(FBB))) {
-      // Remove all unconditional branches we find, since they can only point to
-      // the fall through block.
-      for (MachineBasicBlock::reverse_iterator MI = MBB.rbegin(),
-             MIE = MBB.rend(); MI != MIE; ++MI) {
-        if (MI->isUnconditionalBranch()) {
-          MI->eraseFromParent();
-          Changed = true;
-        }
-      }
+    errs() << "  CHECKING...\n";
+    MachineBasicBlock::reverse_iterator MI = MBB.rbegin();
+   if (MI != MBB.rend() && MI->isUnconditionalBranch()) {
+      MI->eraseFromParent();
+      Changed = true;
+      errs() << "  * ERASED " << *MI;
     }
   }
 
   return Changed;
-
 }
