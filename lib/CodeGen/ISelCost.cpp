@@ -82,6 +82,8 @@ bool ISelCost::runOnMachineFunction(MachineFunction &MF) {
 
   outs() << "{\n \"cycles\": " << cycles << ",\n \"size\": " << size << "\n}\n";
 
+  exit(0);
+
   return false;
 
 }

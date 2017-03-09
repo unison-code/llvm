@@ -57,7 +57,6 @@ FormattedNumber toCostString(int c) {
 }
 
 bool DumpISelWCosts::runOnMachineFunction(MachineFunction &MF) {
-
   const TargetSubtargetInfo &ST = MF.getSubtarget();
   TargetSchedModel model;
   model.init(ST.getSchedModel(), &ST, ST.getInstrInfo());
@@ -86,6 +85,7 @@ bool DumpISelWCosts::runOnMachineFunction(MachineFunction &MF) {
     }
   }
 
-  return false;
+  exit(0);
 
+  return false;
 }
