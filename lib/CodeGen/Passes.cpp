@@ -538,8 +538,10 @@ void TargetPassConfig::addMachinePasses() {
   // Print the instruction selected machine code...
   printAndVerify("After Instruction Selection");
 
-  if (TrivialBranchFolding)
+  if (TrivialBranchFolding) {
     addPass(&TrivialBranchFoldingID);
+    addBlockPlacement();
+  }
 
   if (PrintISelCost)
     addPass(&ISelCostID);
