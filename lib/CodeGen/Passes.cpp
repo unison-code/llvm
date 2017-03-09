@@ -573,7 +573,7 @@ void TargetPassConfig::addMachinePasses() {
   addPostRegAlloc();
 
   // Insert prolog/epilog code.  Eliminate abstract frame index references...
-  if (getOptLevel() != CodeGenOpt::None) 
+  if (getOptLevel() != CodeGenOpt::None)
     addPass(&ShrinkWrapID);
 
   addPass(&PrologEpilogCodeInserterID);
