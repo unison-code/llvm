@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "dump-isel-w-costs"
+#include "llvm/CodeGen/ComputeISelCost.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -79,7 +80,7 @@ bool DumpISelWCosts::runOnMachineFunction(MachineFunction &MF) {
     for (MachineBasicBlock::iterator MBBI = MBB->begin(), MBBE = MBB->end();
          MBBI != MBBE; ) {
       MachineInstr *MI = MBBI++;
-      int c =  model.computeInstrLatency(MI);
+      int c = getInstrCost(&model, MI);
       outs() << toCostString(c) << "    ";
       MI->print(outs());
     }

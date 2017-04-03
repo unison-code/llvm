@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "isel-cost"
+#include "llvm/CodeGen/ComputeISelCost.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -23,6 +24,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetInstrInfo.h"
 
 using namespace llvm;
 
@@ -75,7 +77,8 @@ bool ISelCost::runOnMachineFunction(MachineFunction &MF) {
     for (MachineBasicBlock::iterator MBBI = MBB->begin(), MBBE = MBB->end();
          MBBI != MBBE; ) {
       MachineInstr *MI = MBBI++;
-      cycles +=  f * model.computeInstrLatency(MI);
+      int c = getInstrCost(&model, MI);
+      cycles +=  f * c;
       size += MI->getDesc().getSize();
     }
   }
