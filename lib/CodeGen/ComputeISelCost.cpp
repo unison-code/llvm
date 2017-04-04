@@ -18,11 +18,34 @@
 using namespace llvm;
 
 int getInstrCost(TargetSchedModel* model, MachineInstr* MI) {
+  static bool isLastInstrCopySP = false;
+  static unsigned int vregSpCopy = 0;
   const MachineFunction *MF = MI->getParent()->getParent();
   const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
-  StringRef name = TII->getName(MI->getOpcode());
+  const TargetRegisterInfo *TRI = MF->getSubtarget().getRegisterInfo();
 
-  if (name.equals("ADJCALLSTACKDOWN") || name.equals("ADJCALLSTACKUP")) {
+  StringRef instr_name = TII->getName(MI->getOpcode());
+
+  // Check if the instruction copies the stack pointer
+  if (instr_name.equals("COPY")) {
+    MachineOperand& def_op = MI->getOperand(0);
+    MachineOperand& use_op = MI->getOperand(1);
+    if (def_op.isReg() && use_op.isReg()) {
+      unsigned int reg = use_op.getReg();
+      if (reg < TRI->getNumRegs()) {
+        StringRef reg_name = TRI->getName(reg);
+        if (reg_name.equals("R29")) {
+          isLastInstrCopySP = true;
+          vregSpCopy = def_op.getReg();
+          return 0;
+        }
+      }
+    }
+  }
+
+  if ( instr_name.equals("ADJCALLSTACKDOWN") ||
+       instr_name.equals("ADJCALLSTACKUP")
+     ) {
       return 0;
   }
 
@@ -32,6 +55,22 @@ int getInstrCost(TargetSchedModel* model, MachineInstr* MI) {
       return 0;
     }
   }
+
+  // Check if the instruction stores the stack pointer
+  if (MI->mayStore()) {
+      for (unsigned op = 0; op < MI->getNumOperands(); ++op) {
+          MachineOperand& mop = MI->getOperand(op);
+          if ( isLastInstrCopySP &&
+               mop.isReg() &&
+               TRI->isVirtualRegister(mop.getReg()) &&
+               mop.getReg() == vregSpCopy
+             ) {
+              return 0;
+          }
+      }
+  }
+
+  isLastInstrCopySP = false;
 
   return model->computeInstrLatency(MI);
 }
