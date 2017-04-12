@@ -218,50 +218,44 @@ TargetPassConfig *HexagonTargetMachine::createPassConfig(PassManagerBase &PM) {
 
 void HexagonPassConfig::addIRPasses() {
   TargetPassConfig::addIRPasses();
-  bool NoOpt = (getOptLevel() == CodeGenOpt::None);
 
   addPass(createAtomicExpandPass(TM));
-  if (!NoOpt) {
-    if (EnableCommGEP)
-      addPass(createHexagonCommonGEP());
-    // Replace certain combinations of shifts and ands with extracts.
-    if (EnableGenExtract)
-      addPass(createHexagonGenExtract());
-  }
+  if (EnableCommGEP)
+    addPass(createHexagonCommonGEP());
+  // Replace certain combinations of shifts and ands with extracts.
+  if (EnableGenExtract)
+    addPass(createHexagonGenExtract());
 }
 
 bool HexagonPassConfig::addInstSelector() {
   HexagonTargetMachine &TM = getHexagonTargetMachine();
   bool NoOpt = (getOptLevel() == CodeGenOpt::None);
 
-  if (!NoOpt) {
-    if (EnablePreOptimizeSZextends)
-      addPass(createHexagonOptimizeSZextends());
-  }
+  if (EnablePreOptimizeSZextends)
+    addPass(createHexagonOptimizeSZextends());
 
   addPass(createHexagonISelDag(TM, getOptLevel()));
 
-  if (!NoOpt) {
-    // Create logical operations on predicate registers.
-    if (EnableGenPred)
-      addPass(createHexagonGenPredicate(), false);
-    // Rotate loops to expose bit-simplification opportunities.
-    if (EnableLoopResched)
-      addPass(createHexagonLoopRescheduling(), false);
-    // Split double registers.
-    if (!DisableHSDR)
-      addPass(createHexagonSplitDoubleRegs());
-    // Bit simplification.
-    if (EnableBitSimplify)
-      addPass(createHexagonBitSimplify(), false);
-    if (EnablePostOptimizeSZextends)
-      addPass(createHexagonPeephole());
+  // Create logical operations on predicate registers.
+  if (EnableGenPred)
+    addPass(createHexagonGenPredicate(), false);
+  // Rotate loops to expose bit-simplification opportunities.
+  if (EnableLoopResched)
+    addPass(createHexagonLoopRescheduling(), false);
+  // Split double registers.
+  if (!DisableHSDR)
+    addPass(createHexagonSplitDoubleRegs());
+  // Bit simplification.
+  if (EnableBitSimplify)
+    addPass(createHexagonBitSimplify(), false);
+  if (EnablePostOptimizeSZextends)
+    addPass(createHexagonPeephole());
+  if (!NoOpt)
     printAndVerify("After hexagon peephole pass");
-    if (EnableGenInsert)
-      addPass(createHexagonGenInsert(), false);
-    if (EnableEarlyIf)
-      addPass(createHexagonEarlyIfConversion(), false);
-  }
+  if (EnableGenInsert)
+    addPass(createHexagonGenInsert(), false);
+  if (EnableEarlyIf)
+    addPass(createHexagonEarlyIfConversion(), false);
 
   return false;
 }
