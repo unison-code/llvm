@@ -72,6 +72,12 @@ static cl::opt<bool> EnableBitSimplify("hexagon-bit", cl::init(true),
 static cl::opt<bool> EnableLoopResched("hexagon-loop-resched", cl::init(true),
   cl::Hidden, cl::desc("Loop rescheduling"));
 
+static cl::opt<bool> EnablePreOptimizeSZextends("hexagon-pre-optimize-szext",
+  cl::init(true), cl::Hidden, cl::desc("Remove sign extends"));
+
+static cl::opt<bool> EnablePostOptimizeSZextends("hexagon-post-optimize-szext",
+  cl::init(true), cl::Hidden, cl::desc("Optimize redundant zero and size extends"));
+
 /// HexagonTargetMachineModule - Note that this is used on hosts that
 /// cannot link in a library unless there are references into the
 /// library.  In particular, it seems that it is not possible to get
@@ -228,8 +234,10 @@ bool HexagonPassConfig::addInstSelector() {
   HexagonTargetMachine &TM = getHexagonTargetMachine();
   bool NoOpt = (getOptLevel() == CodeGenOpt::None);
 
-  if (!NoOpt)
-    addPass(createHexagonOptimizeSZextends());
+  if (!NoOpt) {
+    if (EnablePreOptimizeSZextends)
+      addPass(createHexagonOptimizeSZextends());
+  }
 
   addPass(createHexagonISelDag(TM, getOptLevel()));
 
@@ -246,7 +254,8 @@ bool HexagonPassConfig::addInstSelector() {
     // Bit simplification.
     if (EnableBitSimplify)
       addPass(createHexagonBitSimplify(), false);
-    addPass(createHexagonPeephole());
+    if (EnablePostOptimizeSZextends)
+      addPass(createHexagonPeephole());
     printAndVerify("After hexagon peephole pass");
     if (EnableGenInsert)
       addPass(createHexagonGenInsert(), false);
