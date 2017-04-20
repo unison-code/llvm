@@ -1436,6 +1436,9 @@ void HexagonDAGToDAGISel::EmitFunctionEntryCode() {
 
 // Match a frame index that can be used in an addressing mode.
 bool HexagonDAGToDAGISel::SelectAddrFI(SDValue& N, SDValue &R) {
+  // Disable this optimization
+  return false;
+
   if (N.getOpcode() != ISD::FrameIndex)
     return false;
   auto &HFI = *HST->getFrameLowering();
