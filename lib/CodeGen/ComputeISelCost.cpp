@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/IR/Constants.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/TargetSchedule.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -43,6 +44,21 @@ int getInstrCost(TargetSchedModel* model, MachineInstr* MI) {
     }
   }
 
+  // Check if the instruction loads an address to a function argument on the
+  // stack
+  if (instr_name.equals("TFR_FI")) {
+    MachineOperand& def_op = MI->getOperand(0);
+    MachineOperand& fi_op = MI->getOperand(1);
+    if (def_op.isReg() && fi_op.isFI()) {
+      int index = fi_op.getIndex();
+      if (index < 0) {
+        isLastInstrCopySP = true;
+        vregSpCopy = def_op.getReg();
+        return 0;
+      }
+    }
+  }
+
   if ( instr_name.equals("ADJCALLSTACKDOWN") ||
        instr_name.equals("ADJCALLSTACKUP")
      ) {
@@ -56,8 +72,8 @@ int getInstrCost(TargetSchedModel* model, MachineInstr* MI) {
     }
   }
 
-  // Check if the instruction stores the stack pointer
-  if (MI->mayStore()) {
+  // Check if the instruction loads from or stores to the stack
+  if (MI->mayLoad() || MI->mayStore()) {
       for (unsigned op = 0; op < MI->getNumOperands(); ++op) {
           MachineOperand& mop = MI->getOperand(op);
           if ( isLastInstrCopySP &&
