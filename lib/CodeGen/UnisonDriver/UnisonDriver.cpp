@@ -329,7 +329,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   MF.deleteJumpTableInfo();
 
-  LLVMContext &Context = getGlobalContext();
+  LLVMContext Context;
   SMDiagnostic ErrDiag;
   std::unique_ptr<Module> M;
   std::unique_ptr<MIRParser> MIR;

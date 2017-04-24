@@ -273,11 +273,9 @@ namespace llvm {
 
   bool isRegister(Record *rec) {
     if (rec == nullptr) return false;
-    std::vector<Record*> super = rec->getSuperClasses();
-    for (int i = 0, k = super.size(); i < k; i++) {
-      std::string name = super[i]->getName();
-      for (int j = 0, l = registerNames.size(); j < l; j++) {
-        if (name == registerNames[j]) {
+    for (auto super : rec->getSuperClasses()) {
+      for (auto name : registerNames) {
+        if (name == super.first->getName()) {
           return true;
         }
       }

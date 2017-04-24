@@ -45,6 +45,8 @@ struct MIToken {
     rbrace,
     plus,
     minus,
+    less,
+    greater,
 
     // Keywords
     kw_implicit,
@@ -121,7 +123,8 @@ struct MIToken {
     IRBlock,
     NamedIRValue,
     IRValue,
-    QuotedIRValue // `<constant value>`
+    QuotedIRValue, // `<constant value>`
+    SubRegisterIndex
   };
 
 private:
