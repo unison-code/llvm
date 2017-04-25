@@ -46,7 +46,7 @@ struct MIRPrintingPass : public MachineFunctionPass {
     initializeSpillPlacementPass(*PassRegistry::getPassRegistry());
   }
 
-  const char *getPassName() const override { return "MIR Printing Pass"; }
+  StringRef getPassName() const override { return "MIR Printing Pass"; }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesAll();

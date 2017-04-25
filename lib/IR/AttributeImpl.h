@@ -16,17 +16,22 @@
 #ifndef LLVM_LIB_IR_ATTRIBUTEIMPL_H
 #define LLVM_LIB_IR_ATTRIBUTEIMPL_H
 
+#include "AttributeSetNode.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/FoldingSet.h"
-#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Attributes.h"
-#include "llvm/Support/DataTypes.h"
 #include "llvm/Support/TrailingObjects.h"
+#include <algorithm>
+#include <cassert>
 #include <climits>
+#include <cstddef>
+#include <cstdint>
 #include <string>
+#include <utility>
 
 namespace llvm {
 
-class Constant;
 class LLVMContext;
 
 //===----------------------------------------------------------------------===//
@@ -35,10 +40,6 @@ class LLVMContext;
 /// could be a single enum, a tuple, or a string.
 class AttributeImpl : public FoldingSetNode {
   unsigned char KindID; ///< Holds the AttrEntryKind of the attribute
-
-  // AttributesImpl is uniqued, these should not be publicly available.
-  void operator=(const AttributeImpl &) = delete;
-  AttributeImpl(const AttributeImpl &) = delete;
 
 protected:
   enum AttrEntryKind {
@@ -50,6 +51,10 @@ protected:
   AttributeImpl(AttrEntryKind KindID) : KindID(KindID) {}
 
 public:
+  // AttributesImpl is uniqued, these should not be available.
+  AttributeImpl(const AttributeImpl &) = delete;
+  AttributeImpl &operator=(const AttributeImpl &) = delete;
+
   virtual ~AttributeImpl();
 
   bool isEnumAttribute() const { return KindID == EnumAttrEntry; }
@@ -85,9 +90,6 @@ public:
     ID.AddString(Kind);
     if (!Values.empty()) ID.AddString(Values);
   }
-
-  // FIXME: Remove this!
-  static uint64_t getAttrMask(Attribute::AttrKind Val);
 };
 
 //===----------------------------------------------------------------------===//
@@ -142,73 +144,6 @@ public:
   StringRef getStringValue() const { return Val; }
 };
 
-//===----------------------------------------------------------------------===//
-/// \class
-/// \brief This class represents a group of attributes that apply to one
-/// element: function, return type, or parameter.
-class AttributeSetNode final
-    : public FoldingSetNode,
-      private TrailingObjects<AttributeSetNode, Attribute> {
-  friend TrailingObjects;
-
-  unsigned NumAttrs; ///< Number of attributes in this node.
-  /// Bitset with a bit for each available attribute Attribute::AttrKind.
-  uint64_t AvailableAttrs;
-
-  AttributeSetNode(ArrayRef<Attribute> Attrs)
-    : NumAttrs(Attrs.size()), AvailableAttrs(0) {
-    static_assert(Attribute::EndAttrKinds <= sizeof(AvailableAttrs) * CHAR_BIT,
-                  "Too many attributes for AvailableAttrs");
-    // There's memory after the node where we can store the entries in.
-    std::copy(Attrs.begin(), Attrs.end(), getTrailingObjects<Attribute>());
-
-    for (Attribute I : *this) {
-      if (!I.isStringAttribute()) {
-        AvailableAttrs |= ((uint64_t)1) << I.getKindAsEnum();
-      }
-    }
-  }
-
-  // AttributesSetNode is uniqued, these should not be publicly available.
-  void operator=(const AttributeSetNode &) = delete;
-  AttributeSetNode(const AttributeSetNode &) = delete;
-public:
-  void operator delete(void *p) { ::operator delete(p); }
-
-  static AttributeSetNode *get(LLVMContext &C, ArrayRef<Attribute> Attrs);
-
-  /// \brief Return the number of attributes this AttributeSet contains.
-  unsigned getNumAttributes() const { return NumAttrs; }
-
-  bool hasAttribute(Attribute::AttrKind Kind) const {
-    return AvailableAttrs & ((uint64_t)1) << Kind;
-  }
-  bool hasAttribute(StringRef Kind) const;
-  bool hasAttributes() const { return NumAttrs != 0; }
-
-  Attribute getAttribute(Attribute::AttrKind Kind) const;
-  Attribute getAttribute(StringRef Kind) const;
-
-  unsigned getAlignment() const;
-  unsigned getStackAlignment() const;
-  uint64_t getDereferenceableBytes() const;
-  uint64_t getDereferenceableOrNullBytes() const;
-  std::pair<unsigned, Optional<unsigned>> getAllocSizeArgs() const;
-  std::string getAsString(bool InAttrGrp) const;
-
-  typedef const Attribute *iterator;
-  iterator begin() const { return getTrailingObjects<Attribute>(); }
-  iterator end() const { return begin() + NumAttrs; }
-
-  void Profile(FoldingSetNodeID &ID) const {
-    Profile(ID, makeArrayRef(begin(), end()));
-  }
-  static void Profile(FoldingSetNodeID &ID, ArrayRef<Attribute> AttrList) {
-    for (unsigned I = 0, E = AttrList.size(); I != E; ++I)
-      AttrList[I].Profile(ID);
-  }
-};
-
 typedef std::pair<unsigned, AttributeSetNode *> IndexAttrPair;
 
 //===----------------------------------------------------------------------===//
@@ -235,12 +170,9 @@ private:
     return getTrailingObjects<IndexAttrPair>() + Slot;
   }
 
-  // AttributesSet is uniqued, these should not be publicly available.
-  void operator=(const AttributeSetImpl &) = delete;
-  AttributeSetImpl(const AttributeSetImpl &) = delete;
 public:
   AttributeSetImpl(LLVMContext &C,
-                   ArrayRef<std::pair<unsigned, AttributeSetNode *> > Slots)
+                   ArrayRef<std::pair<unsigned, AttributeSetNode *>> Slots)
       : Context(C), NumSlots(Slots.size()), AvailableFunctionAttrs(0) {
     static_assert(Attribute::EndAttrKinds <=
                       sizeof(AvailableFunctionAttrs) * CHAR_BIT,
@@ -272,6 +204,10 @@ public:
       }
     }
   }
+
+  // AttributesSetImpt is uniqued, these should not be available.
+  AttributeSetImpl(const AttributeSetImpl &) = delete;
+  AttributeSetImpl &operator=(const AttributeSetImpl &) = delete;
 
   void operator delete(void *p) { ::operator delete(p); }
 
@@ -318,19 +254,16 @@ public:
     Profile(ID, makeArrayRef(getNode(0), getNumSlots()));
   }
   static void Profile(FoldingSetNodeID &ID,
-                      ArrayRef<std::pair<unsigned, AttributeSetNode*> > Nodes) {
-    for (unsigned i = 0, e = Nodes.size(); i != e; ++i) {
-      ID.AddInteger(Nodes[i].first);
-      ID.AddPointer(Nodes[i].second);
+                      ArrayRef<std::pair<unsigned, AttributeSetNode*>> Nodes) {
+    for (const auto &Node : Nodes) {
+      ID.AddInteger(Node.first);
+      ID.AddPointer(Node.second);
     }
   }
-
-  // FIXME: This atrocity is temporary.
-  uint64_t Raw(unsigned Index) const;
 
   void dump() const;
 };
 
-} // end llvm namespace
+} // end namespace llvm
 
-#endif
+#endif // LLVM_LIB_IR_ATTRIBUTEIMPL_H

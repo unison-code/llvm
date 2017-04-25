@@ -707,20 +707,17 @@ declare i32 @llvm.x86.sse.cvtss2si(<4 x float>) nounwind readnone
 define <4 x float> @test_mm_cvtsi32_ss(<4 x float> %a0, i32 %a1) nounwind {
 ; X32-LABEL: test_mm_cvtsi32_ss:
 ; X32:       # BB#0:
-; X32-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; X32-NEXT:    cvtsi2ssl %eax, %xmm1
-; X32-NEXT:    movss {{.*#+}} xmm0 = xmm1[0],xmm0[1,2,3]
+; X32-NEXT:    cvtsi2ssl {{[0-9]+}}(%esp), %xmm0
 ; X32-NEXT:    retl
 ;
 ; X64-LABEL: test_mm_cvtsi32_ss:
 ; X64:       # BB#0:
-; X64-NEXT:    cvtsi2ssl %edi, %xmm1
-; X64-NEXT:    movss {{.*#+}} xmm0 = xmm1[0],xmm0[1,2,3]
+; X64-NEXT:    cvtsi2ssl %edi, %xmm0
 ; X64-NEXT:    retq
-  %cvt = sitofp i32 %a1 to float
-  %res = insertelement <4 x float> %a0, float %cvt, i32 0
+  %res = call <4 x float> @llvm.x86.sse.cvtsi2ss(<4 x float> %a0, i32 %a1)
   ret <4 x float> %res
 }
+declare <4 x float> @llvm.x86.sse.cvtsi2ss(<4 x float>, i32) nounwind readnone
 
 define float @test_mm_cvtss_f32(<4 x float> %a0) nounwind {
 ; X32-LABEL: test_mm_cvtss_f32:
@@ -762,10 +759,10 @@ define i32 @test_mm_cvttss_si(<4 x float> %a0) nounwind {
 ; X64:       # BB#0:
 ; X64-NEXT:    cvttss2si %xmm0, %eax
 ; X64-NEXT:    retq
-  %cvt = extractelement <4 x float> %a0, i32 0
-  %res = fptosi float %cvt to i32
+  %res = call i32 @llvm.x86.sse.cvttss2si(<4 x float> %a0)
   ret i32 %res
 }
+declare i32 @llvm.x86.sse.cvttss2si(<4 x float>) nounwind readnone
 
 define i32 @test_mm_cvttss_si32(<4 x float> %a0) nounwind {
 ; X32-LABEL: test_mm_cvttss_si32:
@@ -777,8 +774,7 @@ define i32 @test_mm_cvttss_si32(<4 x float> %a0) nounwind {
 ; X64:       # BB#0:
 ; X64-NEXT:    cvttss2si %xmm0, %eax
 ; X64-NEXT:    retq
-  %cvt = extractelement <4 x float> %a0, i32 0
-  %res = fptosi float %cvt to i32
+  %res = call i32 @llvm.x86.sse.cvttss2si(<4 x float> %a0)
   ret i32 %res
 }
 
@@ -817,7 +813,7 @@ define i32 @test_MM_GET_EXCEPTION_MASK() nounwind {
 ; X32-LABEL: test_MM_GET_EXCEPTION_MASK:
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
-; X32-NEXT:    leal (%esp), %eax
+; X32-NEXT:    movl %esp, %eax
 ; X32-NEXT:    stmxcsr (%eax)
 ; X32-NEXT:    movl (%esp), %eax
 ; X32-NEXT:    andl $8064, %eax # imm = 0x1F80
@@ -844,7 +840,7 @@ define i32 @test_MM_GET_EXCEPTION_STATE() nounwind {
 ; X32-LABEL: test_MM_GET_EXCEPTION_STATE:
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
-; X32-NEXT:    leal (%esp), %eax
+; X32-NEXT:    movl %esp, %eax
 ; X32-NEXT:    stmxcsr (%eax)
 ; X32-NEXT:    movl (%esp), %eax
 ; X32-NEXT:    andl $63, %eax
@@ -870,7 +866,7 @@ define i32 @test_MM_GET_FLUSH_ZERO_MODE() nounwind {
 ; X32-LABEL: test_MM_GET_FLUSH_ZERO_MODE:
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
-; X32-NEXT:    leal (%esp), %eax
+; X32-NEXT:    movl %esp, %eax
 ; X32-NEXT:    stmxcsr (%eax)
 ; X32-NEXT:    movl (%esp), %eax
 ; X32-NEXT:    andl $32768, %eax # imm = 0x8000
@@ -896,7 +892,7 @@ define i32 @test_MM_GET_ROUNDING_MODE() nounwind {
 ; X32-LABEL: test_MM_GET_ROUNDING_MODE:
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
-; X32-NEXT:    leal (%esp), %eax
+; X32-NEXT:    movl %esp, %eax
 ; X32-NEXT:    stmxcsr (%eax)
 ; X32-NEXT:    movl (%esp), %eax
 ; X32-NEXT:    andl $24576, %eax # imm = 0x6000
@@ -922,7 +918,7 @@ define i32 @test_mm_getcsr() nounwind {
 ; X32-LABEL: test_mm_getcsr:
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
-; X32-NEXT:    leal (%esp), %eax
+; X32-NEXT:    movl %esp, %eax
 ; X32-NEXT:    stmxcsr (%eax)
 ; X32-NEXT:    movl (%esp), %eax
 ; X32-NEXT:    popl %ecx
@@ -1431,7 +1427,7 @@ define void @test_MM_SET_EXCEPTION_MASK(i32 %a0) nounwind {
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
 ; X32-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; X32-NEXT:    leal (%esp), %ecx
+; X32-NEXT:    movl %esp, %ecx
 ; X32-NEXT:    stmxcsr (%ecx)
 ; X32-NEXT:    movl (%esp), %edx
 ; X32-NEXT:    andl $-8065, %edx # imm = 0xE07F
@@ -1468,7 +1464,7 @@ define void @test_MM_SET_EXCEPTION_STATE(i32 %a0) nounwind {
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
 ; X32-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; X32-NEXT:    leal (%esp), %ecx
+; X32-NEXT:    movl %esp, %ecx
 ; X32-NEXT:    stmxcsr (%ecx)
 ; X32-NEXT:    movl (%esp), %edx
 ; X32-NEXT:    andl $-64, %edx
@@ -1504,7 +1500,7 @@ define void @test_MM_SET_FLUSH_ZERO_MODE(i32 %a0) nounwind {
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
 ; X32-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; X32-NEXT:    leal (%esp), %ecx
+; X32-NEXT:    movl %esp, %ecx
 ; X32-NEXT:    stmxcsr (%ecx)
 ; X32-NEXT:    movl (%esp), %edx
 ; X32-NEXT:    andl $-32769, %edx # imm = 0xFFFF7FFF
@@ -1584,7 +1580,7 @@ define void @test_MM_SET_ROUNDING_MODE(i32 %a0) nounwind {
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
 ; X32-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; X32-NEXT:    leal (%esp), %ecx
+; X32-NEXT:    movl %esp, %ecx
 ; X32-NEXT:    stmxcsr (%ecx)
 ; X32-NEXT:    movl (%esp), %edx
 ; X32-NEXT:    andl $-24577, %edx # imm = 0x9FFF
@@ -1659,7 +1655,7 @@ define void @test_mm_setcsr(i32 %a0) nounwind {
 ; X32:       # BB#0:
 ; X32-NEXT:    pushl %eax
 ; X32-NEXT:    movl {{[0-9]+}}(%esp), %eax
-; X32-NEXT:    leal (%esp), %ecx
+; X32-NEXT:    movl %esp, %ecx
 ; X32-NEXT:    movl %eax, (%esp)
 ; X32-NEXT:    ldmxcsr (%ecx)
 ; X32-NEXT:    popl %eax

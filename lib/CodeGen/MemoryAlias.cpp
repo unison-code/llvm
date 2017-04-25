@@ -102,15 +102,13 @@ bool MemoryAlias::runOnMachineFunction(MachineFunction &MF) {
 
   bool Changed = false;
 
-  for (MachineFunction::iterator MBB = MF.begin(), MBBE = MF.end();
-       MBB != MBBE; ++MBB) {
+  for (auto & MBB : MF) {
 
     // Create initial partitions with all the memory references in the block
 
     MemAccessPartition MP;
-    for (MachineBasicBlock::iterator MI = MBB->begin();
-         MI != MBB->end(); ++MI)
-      if (!MI->isBundle() && (MI->mayStore() || MI->mayLoad())) MP.insert(MI);
+    for (auto & MI : MBB)
+      if (!MI.isBundle() && (MI.mayStore() || MI.mayLoad())) MP.insert(&MI);
 
     // Pairwise compare all memory references and merge those which may alias
 
@@ -120,7 +118,7 @@ bool MemoryAlias::runOnMachineFunction(MachineFunction &MF) {
            ++MI2) {
         // If MI1 and MI2 may alias
         if ((MI1->getData()->mayStore() || MI2->getData()->mayStore()) &&
-            MIsNeedChainEdge(AA, MF.getFrameInfo(), DL,
+            MIsNeedChainEdge(AA, &(MF.getFrameInfo()), DL,
                              MI1->getData(), MI2->getData())) {
           MP.unionSets(MI1->getData(), MI2->getData());
         }
@@ -139,10 +137,9 @@ bool MemoryAlias::runOnMachineFunction(MachineFunction &MF) {
 
     // Add a debug operand to each memory access instruction with the partition
     // of the memory reference
-    for (MachineBasicBlock::iterator MI = MBB->begin();
-         MI != MBB->end(); ++MI)
-      if (!MI->isBundle() && (MI->mayStore() || MI->mayLoad())) {
-        MachineInstr *MemI = MI;
+    for (auto & MI : MBB)
+      if (!MI.isBundle() && (MI.mayStore() || MI.mayLoad())) {
+        MachineInstr *MemI = &MI;
         LLVMContext &Context = MF.getFunction()->getContext();
         MDBuilder builder(Context);
         MDNode * MD =
@@ -150,7 +147,7 @@ bool MemoryAlias::runOnMachineFunction(MachineFunction &MF) {
           {builder.createString("unison-memory-partition"),
            builder.createConstant(
              ConstantInt::get(Type::getInt32Ty(Context), this->MP.at(MemI)))});
-        MI->addOperand(MF, MachineOperand::CreateMetadata(MD));
+        MI.addOperand(MF, MachineOperand::CreateMetadata(MD));
         Changed = true;
       }
 

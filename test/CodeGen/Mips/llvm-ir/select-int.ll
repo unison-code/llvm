@@ -35,10 +35,11 @@ entry:
   ; ALL-LABEL: tst_select_i1_i1:
 
   ; M2-M3:  andi    $[[T0:[0-9]+]], $4, 1
-  ; M2-M3:  bnez    $[[T0]], $[[BB0:BB[0-9_]+]]
+  ; M2:     bnez    $[[T0]], [[BB0:\$BB[0-9_]+]]
+  ; M3:     bnez    $[[T0]], [[BB0:\.LBB[0-9_]+]]
   ; M2-M3:  nop
   ; M2-M3:  move    $5, $6
-  ; M2-M3:  $[[BB0]]:
+  ; M2-M3:  [[BB0]]:
   ; M2-M3:  jr      $ra
   ; M2-M3:  move    $2, $5
 
@@ -70,10 +71,11 @@ entry:
   ; ALL-LABEL: tst_select_i1_i8:
 
   ; M2-M3:  andi    $[[T0:[0-9]+]], $4, 1
-  ; M2-M3:  bnez    $[[T0]], $[[BB0:BB[0-9_]+]]
+  ; M2:     bnez    $[[T0]], [[BB0:\$BB[0-9_]+]]
+  ; M3:     bnez    $[[T0]], [[BB0:\.LBB[0-9_]+]]
   ; M2-M3:  nop
   ; M2-M3:  move    $5, $6
-  ; M2-M3:  $[[BB0]]:
+  ; M2-M3:  [[BB0]]:
   ; M2-M3:  jr      $ra
   ; M2-M3:  move    $2, $5
 
@@ -105,10 +107,11 @@ entry:
   ; ALL-LABEL: tst_select_i1_i32:
 
   ; M2-M3:  andi    $[[T0:[0-9]+]], $4, 1
-  ; M2-M3:  bnez    $[[T0]], $[[BB0:BB[0-9_]+]]
+  ; M2:     bnez    $[[T0]], [[BB0:\$BB[0-9_]+]]
+  ; M3:     bnez    $[[T0]], [[BB0:\.LBB[0-9_]+]]
   ; M2-M3:  nop
   ; M2-M3:  move    $5, $6
-  ; M2-M3:  $[[BB0]]:
+  ; M2-M3:  [[BB0]]:
   ; M2-M3:  jr      $ra
   ; M2-M3:  move    $2, $5
 
@@ -160,20 +163,20 @@ entry:
   ; CMOV-32:    movn    $3, $7, $[[T0]]
 
   ; SEL-32:     andi    $[[T0:[0-9]+]], $4, 1
-  ; SEL-32:     selnez  $[[T1:[0-9]+]], $6, $[[T0]]
-  ; SEL-32:     lw      $[[T2:[0-9]+]], 16($sp)
-  ; SEL-32:     seleqz  $[[T3:[0-9]+]], $[[T2]], $[[T0]]
-  ; SEL-32:     or      $2, $[[T1]], $[[T3]]
-  ; SEL-32:     selnez  $[[T4:[0-9]+]], $7, $[[T0]]
-  ; SEL-32:     lw      $[[T5:[0-9]+]], 20($sp)
-  ; SEL-32:     seleqz  $[[T6:[0-9]+]], $[[T5]], $[[T0]]
-  ; SEL-32:     or      $3, $[[T4]], $[[T6]]
+  ; SEL-32:     lw      $[[T1:[0-9]+]], 16($sp)
+  ; SEL-32:     seleqz  $[[T2:[0-9]+]], $[[T1]], $[[T0]]
+  ; SEL-32:     selnez  $[[T3:[0-9]+]], $6, $[[T0]]
+  ; SEL-32:     or      $2, $[[T3]], $[[T2]]
+  ; SEL-32:     lw      $[[T4:[0-9]+]], 20($sp)
+  ; SEL-32:     seleqz  $[[T5:[0-9]+]], $[[T4]], $[[T0]]
+  ; SEL-32:     selnez  $[[T6:[0-9]+]], $7, $[[T0]]
+  ; SEL-32:     or      $3, $[[T6]], $[[T5]]
 
   ; M3:         andi    $[[T0:[0-9]+]], $4, 1
-  ; M3:         bnez    $[[T0]], $[[BB0:BB[0-9_]+]]
+  ; M3:         bnez    $[[T0]], [[BB0:\.LBB[0-9_]+]]
   ; M3:         nop
   ; M3:         move    $5, $6
-  ; M3:         $[[BB0]]:
+  ; M3:         [[BB0]]:
   ; M3:         jr      $ra
   ; M3:         move    $2, $5
 
@@ -195,10 +198,10 @@ entry:
   ; MM32R3:     movn    $3, $7, $[[T0]]
 
   ; MM32R6:     andi16  $[[T0:[0-9]+]], $4, 1
-  ; MM32R6:     lw      $[[T1:[0-9]+]], 16($sp)
-  ; MM32R6:     seleqz  $[[T2:[0-9]+]], $[[T1]], $[[T0]]
-  ; MM32R6:     selnez  $[[T3:[0-9]+]], $6, $[[T0]]
-  ; MM32R6:     or      $2, $[[T3]], $[[T2]]
+  ; MM32R6:     lw      $[[T2:[0-9]+]], 16($sp)
+  ; MM32R6:     seleqz  $[[T3:[0-9]+]], $[[T2]], $[[T0]]
+  ; MM32R6:     selnez  $[[T1:[0-9]+]], $6, $[[T0]]
+  ; MM32R6:     or      $2, $[[T1]], $[[T3]]
   ; MM32R6:     lw      $[[T4:[0-9]+]], 20($sp)
   ; MM32R6:     seleqz  $[[T5:[0-9]+]], $[[T4]], $[[T0]]
   ; MM32R6:     selnez  $[[T6:[0-9]+]], $7, $[[T0]]
@@ -214,19 +217,19 @@ define i8* @tst_select_word_cst(i8* %a, i8* %b) {
   ; M2:         addiu   $[[T0:[0-9]+]], $zero, -1
   ; M2:         xor     $[[T1:[0-9]+]], $5, $[[T0]]
   ; M2:         sltu    $[[T2:[0-9]+]], $zero, $[[T1]]
-  ; M2:         bnez    $[[T2]], $[[BB0:BB[0-9_]+]]
+  ; M2:         bnez    $[[T2]], [[BB0:\$BB[0-9_]+]]
   ; M2:         addiu   $2, $zero, 0
   ; M2:         move    $2, $4
-  ; M2: $[[BB0]]:
+  ; M2: [[BB0]]:
   ; M2:         jr      $ra
 
   ; M3:         daddiu  $[[T0:[0-9]+]], $zero, -1
   ; M3:         xor     $[[T1:[0-9]+]], $5, $[[T0]]
   ; M3:         sltu    $[[T2:[0-9]+]], $zero, $[[T1]]
-  ; M3:         bnez    $[[T2]], $[[BB0:BB[0-9_]+]]
+  ; M3:         bnez    $[[T2]], [[BB0:\.LBB[0-9_]+]]
   ; M3:         daddiu  $2, $zero, 0
   ; M3:         move    $2, $4
-  ; M3: $[[BB0]]:
+  ; M3: [[BB0]]:
   ; M3:         jr      $ra
 
   ; CMOV-32:    addiu   $[[T0:[0-9]+]], $zero, -1
@@ -255,7 +258,7 @@ define i8* @tst_select_word_cst(i8* %a, i8* %b) {
 
   ; MM32R3:     li16    $[[T0:[0-9]+]], -1
   ; MM32R3:     xor     $[[T1:[0-9]+]], $5, $[[T0]]
-  ; MM32R3:     lui     $[[T2:[0-9]+]], 0
+  ; MM32R3:     li16    $[[T2:[0-9]+]], 0
   ; MM32R3:     movn    $[[T3:[0-9]+]], $[[T2]], $[[T1]]
   ; MM32R3:     move    $2, $[[T3]]
 

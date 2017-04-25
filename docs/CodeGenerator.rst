@@ -436,7 +436,7 @@ For example, consider this simple LLVM example:
 The X86 instruction selector might produce this machine code for the ``div`` and
 ``ret``:
 
-.. code-block:: llvm
+.. code-block:: text
 
   ;; Start of div
   %EAX = mov %reg1024           ;; Copy X (in reg1024) into EAX
@@ -453,7 +453,7 @@ By the end of code generation, the register allocator would coalesce the
 registers and delete the resultant identity moves producing the following
 code:
 
-.. code-block:: llvm
+.. code-block:: text
 
   ;; X is in EAX, Y is in ECX
   mov %EAX, %EDX
@@ -965,7 +965,7 @@ target code.  For example, consider the following LLVM fragment:
 
 This LLVM code corresponds to a SelectionDAG that looks basically like this:
 
-.. code-block:: llvm
+.. code-block:: text
 
   (fadd:f32 (fmul:f32 (fadd:f32 W, X), Y), Z)
 
@@ -2396,7 +2396,7 @@ the following exceptions.  Callee saved registers are spilled after the frame is
 created.  This allows the llvm epilog/prolog support to be common with other
 targets.  The base pointer callee saved register r31 is saved in the TOC slot of
 linkage area.  This simplifies allocation of space for the base pointer and
-makes it convenient to locate programatically and during debugging.
+makes it convenient to locate programmatically and during debugging.
 
 Dynamic Allocation
 ^^^^^^^^^^^^^^^^^^
@@ -2682,15 +2682,19 @@ Following notations are used for specifying relocation calculations:
 AMDGPU Backend generates *Elf64_Rela* relocation records with the following
 supported relocation types:
 
-  =====================  =====  ==========  ====================
-  Relocation type        Value  Field       Calculation
-  =====================  =====  ==========  ====================
-  ``R_AMDGPU_NONE``      0      ``none``    ``none``
-  ``R_AMDGPU_ABS32_LO``  1      ``word32``  (S + A) & 0xFFFFFFFF
-  ``R_AMDGPU_ABS32_HI``  2      ``word32``  (S + A) >> 32
-  ``R_AMDGPU_ABS64``     3      ``word64``  S + A
-  ``R_AMDGPU_REL32``     4      ``word32``  S + A - P
-  ``R_AMDGPU_REL64``     5      ``word64``  S + A - P
-  ``R_AMDGPU_ABS32``     6      ``word32``  S + A
-  ``R_AMDGPU_GOTPCREL``  7      ``word32``  G + GOT + A - P
-  =====================  =====  ==========  ====================
+  ==========================  =====  ==========  ==============================
+  Relocation type             Value  Field       Calculation
+  ==========================  =====  ==========  ==============================
+  ``R_AMDGPU_NONE``           0      ``none``    ``none``
+  ``R_AMDGPU_ABS32_LO``       1      ``word32``  (S + A) & 0xFFFFFFFF
+  ``R_AMDGPU_ABS32_HI``       2      ``word32``  (S + A) >> 32
+  ``R_AMDGPU_ABS64``          3      ``word64``  S + A
+  ``R_AMDGPU_REL32``          4      ``word32``  S + A - P
+  ``R_AMDGPU_REL64``          5      ``word64``  S + A - P
+  ``R_AMDGPU_ABS32``          6      ``word32``  S + A
+  ``R_AMDGPU_GOTPCREL``       7      ``word32``  G + GOT + A - P
+  ``R_AMDGPU_GOTPCREL32_LO``  8      ``word32``  (G + GOT + A - P) & 0xFFFFFFFF
+  ``R_AMDGPU_GOTPCREL32_HI``  9      ``word32``  (G + GOT + A - P) >> 32
+  ``R_AMDGPU_REL32_LO``       10     ``word32``  (S + A - P) & 0xFFFFFFFF
+  ``R_AMDGPU_REL32_HI``       11     ``word32``  (S + A - P) >> 32
+  ==========================  =====  ==========  ==============================

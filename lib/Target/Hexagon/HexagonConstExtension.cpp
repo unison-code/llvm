@@ -66,7 +66,7 @@ namespace {
     HexagonConstExtension() : MachineFunctionPass(ID) {
       initializeHexagonConstExtensionPass(*PassRegistry::getPassRegistry());
     }
-    const char *getPassName() const override {
+    StringRef getPassName() const override {
       return "Hexagon constant extension";
     }
     void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -88,7 +88,7 @@ bool HexagonConstExtension::runOnMachineFunction(MachineFunction &MF) {
   for (auto & MBB : MF) {
     for (auto & MI : MBB) {
       if (!MI.isTransient() &&
-          (HII->isExtended(&MI) || HII->isConstExtended(&MI))) {
+          (HII->isExtended(MI) || HII->isConstExtended(MI))) {
         LLVMContext &Context = MF.getFunction()->getContext();
         MDBuilder builder(Context);
         MDNode * MD =

@@ -20,36 +20,26 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Target/TargetOptions.h"
-#include <cassert>
 #include <string>
 
 namespace llvm {
 
-class InstrItineraryData;
 class GlobalValue;
-class Mangler;
 class MachineFunctionInitializer;
-class MachineModuleInfo;
+class Mangler;
 class MCAsmInfo;
 class MCContext;
 class MCInstrInfo;
 class MCRegisterInfo;
 class MCSubtargetInfo;
 class MCSymbol;
-class Target;
-class TargetLibraryInfo;
-class TargetFrameLowering;
-class TargetIRAnalysis;
-class TargetIntrinsicInfo;
-class TargetLowering;
-class TargetPassConfig;
-class TargetRegisterInfo;
-class TargetSubtargetInfo;
-class TargetTransformInfo;
-class formatted_raw_ostream;
-class raw_ostream;
 class raw_pwrite_stream;
+class Target;
+class TargetIntrinsicInfo;
+class TargetIRAnalysis;
 class TargetLoweringObjectFile;
+class TargetPassConfig;
+class TargetSubtargetInfo;
 class MachineFunctionPass;
 
 // The old pass manager infrastructure is hidden in a legacy namespace now.
@@ -65,8 +55,6 @@ using legacy::PassManagerBase;
 /// interface.
 ///
 class TargetMachine {
-  TargetMachine(const TargetMachine &) = delete;
-  void operator=(const TargetMachine &) = delete;
 protected: // Can only create subclasses.
   TargetMachine(const Target &T, StringRef DataLayoutString,
                 const Triple &TargetTriple, StringRef CPU, StringRef FS,
@@ -104,8 +92,11 @@ protected: // Can only create subclasses.
   unsigned O0WantsFastISel : 1;
 
 public:
+  const TargetOptions DefaultOptions;
   mutable TargetOptions Options;
 
+  TargetMachine(const TargetMachine &) = delete;
+  void operator=(const TargetMachine &) = delete;
   virtual ~TargetMachine();
 
   const Target &getTarget() const { return TheTarget; }
@@ -194,12 +185,6 @@ public:
 
   bool shouldPrintMachineCode() const { return Options.PrintMachineCode; }
 
-  /// Returns the default value of asm verbosity.
-  ///
-  bool getAsmVerbosityDefault() const {
-    return Options.MCOptions.AsmVerbose;
-  }
-
   bool getUniqueSectionNames() const { return Options.UniqueSectionNames; }
 
   /// Return true if data objects should be emitted into their own section,
@@ -242,7 +227,8 @@ public:
   virtual bool addPassesToEmitFile(
       PassManagerBase &, raw_pwrite_stream &, CodeGenFileType,
       bool /*DisableVerify*/ = true, AnalysisID /*StartBefore*/ = nullptr,
-      AnalysisID /*StartAfter*/ = nullptr, AnalysisID /*StopAfter*/ = nullptr,
+      AnalysisID /*StartAfter*/ = nullptr, AnalysisID /*StopBefore*/ = nullptr,
+      AnalysisID /*StopAfter*/ = nullptr,
       MachineFunctionInitializer * /*MFInitializer*/ = nullptr,
       MachineFunctionPass * /*UnisonDriver*/ = nullptr) {
     return true;
@@ -268,7 +254,7 @@ public:
 
   void getNameWithPrefix(SmallVectorImpl<char> &Name, const GlobalValue *GV,
                          Mangler &Mang, bool MayAlwaysUsePrivate = false) const;
-  MCSymbol *getSymbol(const GlobalValue *GV, Mangler &Mang) const;
+  MCSymbol *getSymbol(const GlobalValue *GV) const;
 
   /// True if the target uses physical regs at Prolog/Epilog insertion
   /// time. If true (most machines), all vregs must be allocated before
@@ -304,7 +290,8 @@ public:
   bool addPassesToEmitFile(
       PassManagerBase &PM, raw_pwrite_stream &Out, CodeGenFileType FileType,
       bool DisableVerify = true, AnalysisID StartBefore = nullptr,
-      AnalysisID StartAfter = nullptr, AnalysisID StopAfter = nullptr,
+      AnalysisID StartAfter = nullptr, AnalysisID StopBefore = nullptr,
+      AnalysisID StopAfter = nullptr,
       MachineFunctionInitializer *MFInitializer = nullptr,
       MachineFunctionPass *UnisonDriver = nullptr) override;
 
@@ -315,15 +302,8 @@ public:
   bool addPassesToEmitMC(PassManagerBase &PM, MCContext *&Ctx,
                          raw_pwrite_stream &OS,
                          bool DisableVerify = true) override;
-
-  /// Add MachineModuleInfo pass to pass manager.
-  MachineModuleInfo &addMachineModuleInfo(PassManagerBase &PM) const;
-
-  /// Add MachineFunctionAnalysis pass to pass manager.
-  void addMachineFunctionAnalysis(PassManagerBase &PM,
-      MachineFunctionInitializer *MFInitializer) const;
 };
 
-} // End llvm namespace
+} // end namespace llvm
 
-#endif
+#endif // LLVM_TARGET_TARGETMACHINE_H
