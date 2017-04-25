@@ -45,7 +45,7 @@
 //
 // The pass assumes that it is run right before emission and gets as input
 // the name of a MIR file that has been generated with the input to Unison
-// (see Passes.cpp).
+// (see TargetPassConfig.cpp).
 //
 //===----------------------------------------------------------------------===//
 
