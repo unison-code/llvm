@@ -537,10 +537,6 @@ static inline bool isGlobalMemoryObject(AliasAnalysis *AA, MachineInstr *MI) {
          (MI->hasOrderedMemoryRef() && !MI->isDereferenceableInvariantLoad(AA));
 }
 
-namespace llvm {
-
-
-} // namespace llvm
 void ScheduleDAGInstrs::addChainDependency (SUnit *SUa, SUnit *SUb,
                                             unsigned Latency) {
   if (SUa->getInstr()->mayAlias(AAForDep, *SUb->getInstr(), UseTBAA)) {

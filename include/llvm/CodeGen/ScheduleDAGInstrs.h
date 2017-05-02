@@ -353,11 +353,6 @@ namespace llvm {
       return nullptr;
     return I->second;
   }
-
-  bool MIsNeedChainEdge(AliasAnalysis *AA, const MachineFrameInfo *MFI,
-                        const DataLayout &DL, MachineInstr *MIa,
-                        MachineInstr *MIb);
-
 } // end namespace llvm
 
 #endif
