@@ -81,8 +81,9 @@ function(add_llvm_symbol_exports target_name export_file)
     # Gold and BFD ld require a version script rather than a plain list.
     set(native_export_file "${target_name}.exports")
     # FIXME: Don't write the "local:" line on OpenBSD.
+    # in the export file, also add a linker script to version LLVM symbols (form: LLVM_N.M)
     add_custom_command(OUTPUT ${native_export_file}
-      COMMAND echo "{" > ${native_export_file}
+      COMMAND echo "LLVM_${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR} {" > ${native_export_file}
       COMMAND grep -q "[[:alnum:]]" ${export_file} && echo "  global:" >> ${native_export_file} || :
       COMMAND sed -e "s/$/;/" -e "s/^/    /" < ${export_file} >> ${native_export_file}
       COMMAND echo "  local: *;" >> ${native_export_file}
@@ -462,11 +463,9 @@ function(llvm_add_library name)
     if(UNIX AND NOT APPLE AND NOT ARG_SONAME)
       set_target_properties(${name}
         PROPERTIES
-		# Concatenate the version numbers since ldconfig expects exactly
-		# one component indicating the ABI version, while LLVM uses
-		# major+minor for that.
-        SOVERSION ${LLVM_VERSION_MAJOR}${LLVM_VERSION_MINOR}
-        VERSION ${LLVM_VERSION_MAJOR}${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}${LLVM_VERSION_SUFFIX})
+        # Since 4.0.0, the ABI version is indicated by the major version
+        SOVERSION ${LLVM_VERSION_MAJOR}
+        VERSION ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}${LLVM_VERSION_SUFFIX})
     endif()
   endif()
 
@@ -720,11 +719,11 @@ macro(add_llvm_executable name)
   if(NOT ARG_IGNORE_EXTERNALIZE_DEBUGINFO)
     llvm_externalize_debuginfo(${name})
   endif()
-  if (PTHREAD_LIB)
+  if (LLVM_PTHREAD_LIB)
     # libpthreads overrides some standard library symbols, so main
     # executable must be linked with it in order to provide consistent
     # API for all shared libaries loaded by this executable.
-    target_link_libraries(${name} ${PTHREAD_LIB})
+    target_link_libraries(${name} ${LLVM_PTHREAD_LIB})
   endif()
 endmacro(add_llvm_executable name)
 
@@ -1029,7 +1028,7 @@ function(add_unittest test_suite test_name)
   # libpthreads overrides some standard library symbols, so main
   # executable must be linked with it in order to provide consistent
   # API for all shared libaries loaded by this executable.
-  target_link_libraries(${test_name} gtest_main gtest ${PTHREAD_LIB})
+  target_link_libraries(${test_name} gtest_main gtest ${LLVM_PTHREAD_LIB})
 
   add_dependencies(${test_suite} ${test_name})
   get_target_property(test_suite_folder ${test_suite} FOLDER)
@@ -1389,7 +1388,11 @@ function(llvm_externalize_debuginfo name)
   endif()
 
   if(NOT LLVM_EXTERNALIZE_DEBUGINFO_SKIP_STRIP)
-    set(strip_command COMMAND xcrun strip -Sxl $<TARGET_FILE:${name}>)
+    if(APPLE)
+      set(strip_command COMMAND xcrun strip -Sxl $<TARGET_FILE:${name}>)
+    else()
+      set(strip_command COMMAND strip -gx $<TARGET_FILE:${name}>)
+    endif()
   endif()
 
   if(APPLE)
@@ -1405,7 +1408,11 @@ function(llvm_externalize_debuginfo name)
       ${strip_command}
       )
   else()
-    message(FATAL_ERROR "LLVM_EXTERNALIZE_DEBUGINFO isn't implemented for non-darwin platforms!")
+    add_custom_command(TARGET ${name} POST_BUILD
+      COMMAND objcopy --only-keep-debug $<TARGET_FILE:${name}> $<TARGET_FILE:${name}>.debug
+      ${strip_command} -R .gnu_debuglink
+      COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${name}>.debug $<TARGET_FILE:${name}>
+      )
   endif()
 endfunction()
 

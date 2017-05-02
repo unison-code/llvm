@@ -236,9 +236,9 @@ bool LoopIdiomRecognize::runOnLoop(Loop *L) {
   ApplyCodeSizeHeuristics =
       L->getHeader()->getParent()->optForSize() && UseLIRCodeSizeHeurs;
 
-  HasMemset = TLI->has(LibFunc::memset);
-  HasMemsetPattern = TLI->has(LibFunc::memset_pattern16);
-  HasMemcpy = TLI->has(LibFunc::memcpy);
+  HasMemset = TLI->has(LibFunc_memset);
+  HasMemsetPattern = TLI->has(LibFunc_memset_pattern16);
+  HasMemcpy = TLI->has(LibFunc_memcpy);
 
   if (HasMemset || HasMemsetPattern || HasMemcpy)
     if (SE->hasLoopInvariantBackedgeTakenCount(L))
@@ -343,6 +343,11 @@ bool LoopIdiomRecognize::isLegalStore(StoreInst *SI, bool &ForMemset,
                                       bool &ForMemsetPattern, bool &ForMemcpy) {
   // Don't touch volatile stores.
   if (!SI->isSimple())
+    return false;
+
+  // Don't convert stores of non-integral pointer types to memsets (which stores
+  // integers).
+  if (DL->isNonIntegralPointerType(SI->getValueOperand()->getType()))
     return false;
 
   // Avoid merging nontemporal stores.
@@ -823,7 +828,7 @@ bool LoopIdiomRecognize::processLoopStridedStore(
     Module *M = TheStore->getModule();
     Value *MSP =
         M->getOrInsertFunction("memset_pattern16", Builder.getVoidTy(),
-                               Int8PtrTy, Int8PtrTy, IntPtr, (void *)nullptr);
+                               Int8PtrTy, Int8PtrTy, IntPtr);
     inferLibFuncAttributes(*M->getFunction("memset_pattern16"), *TLI);
 
     // Otherwise we should form a memset_pattern16.  PatternValue is known to be

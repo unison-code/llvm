@@ -98,8 +98,6 @@ INITIALIZE_PASS_END(MemoryAlias, "memory-alias",
 bool MemoryAlias::runOnMachineFunction(MachineFunction &MF) {
 
   AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
-  const DataLayout &DL = MF.getFunction()->getParent()->getDataLayout();
-
   bool Changed = false;
 
   for (auto & MBB : MF) {
@@ -118,8 +116,7 @@ bool MemoryAlias::runOnMachineFunction(MachineFunction &MF) {
            ++MI2) {
         // If MI1 and MI2 may alias
         if ((MI1->getData()->mayStore() || MI2->getData()->mayStore()) &&
-            MIsNeedChainEdge(AA, &(MF.getFrameInfo()), DL,
-                             MI1->getData(), MI2->getData())) {
+            MI1->getData()->mayAlias(AA, *(MI2->getData()), true)) {
           MP.unionSets(MI1->getData(), MI2->getData());
         }
       }

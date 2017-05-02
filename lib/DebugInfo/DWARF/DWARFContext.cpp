@@ -1,4 +1,4 @@
-//===-- DWARFContext.cpp --------------------------------------------------===//
+//===- DWARFContext.cpp ---------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,23 +7,45 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/DebugInfo/DWARF/DWARFContext.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/DebugInfo/DWARF/DWARFAcceleratorTable.h"
+#include "llvm/DebugInfo/DWARF/DWARFCompileUnit.h"
+#include "llvm/DebugInfo/DWARF/DWARFContext.h"
+#include "llvm/DebugInfo/DWARF/DWARFDebugAbbrev.h"
+#include "llvm/DebugInfo/DWARF/DWARFDebugAranges.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugArangeSet.h"
+#include "llvm/DebugInfo/DWARF/DWARFDebugFrame.h"
+#include "llvm/DebugInfo/DWARF/DWARFDebugLine.h"
+#include "llvm/DebugInfo/DWARF/DWARFDebugLoc.h"
+#include "llvm/DebugInfo/DWARF/DWARFDebugMacro.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugPubTable.h"
+#include "llvm/DebugInfo/DWARF/DWARFDebugRangeList.h"
+#include "llvm/DebugInfo/DWARF/DWARFDie.h"
+#include "llvm/DebugInfo/DWARF/DWARFFormValue.h"
+#include "llvm/DebugInfo/DWARF/DWARFGdbIndex.h"
+#include "llvm/DebugInfo/DWARF/DWARFSection.h"
 #include "llvm/DebugInfo/DWARF/DWARFUnitIndex.h"
 #include "llvm/Object/Decompressor.h"
 #include "llvm/Object/MachO.h"
+#include "llvm/Object/ObjectFile.h"
 #include "llvm/Object/RelocVisitor.h"
-#include "llvm/Support/Compression.h"
-#include "llvm/Support/Dwarf.h"
-#include "llvm/Support/ELF.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/DataExtractor.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/Format.h"
-#include "llvm/Support/Path.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
+#include <cstdint>
+#include <string>
+#include <utility>
+#include <vector>
+
 using namespace llvm;
 using namespace dwarf;
 using namespace object;
@@ -33,6 +55,16 @@ using namespace object;
 typedef DWARFDebugLine::LineTable DWARFLineTable;
 typedef DILineInfoSpecifier::FileLineInfoKind FileLineInfoKind;
 typedef DILineInfoSpecifier::FunctionNameKind FunctionNameKind;
+
+uint64_t llvm::getRelocatedValue(const DataExtractor &Data, uint32_t Size,
+                                 uint32_t *Off, const RelocAddrMap *Relocs) {
+  if (!Relocs)
+    return Data.getUnsigned(Off, Size);
+  RelocAddrMap::const_iterator AI = Relocs->find(*Off);
+  if (AI == Relocs->end())
+    return Data.getUnsigned(Off, Size);
+  return Data.getUnsigned(Off, Size) + AI->second.second;
+}
 
 static void dumpAccelSection(raw_ostream &OS, StringRef Name,
                              const DWARFSection& Section, StringRef StringSection,
@@ -128,8 +160,7 @@ void DWARFContext::dump(raw_ostream &OS, DIDumpType DumpType, bool DumpEH,
       auto CUDIE = CU->getUnitDIE();
       if (!CUDIE)
         continue;
-      if (auto StmtOffset =
-              CUDIE.getAttributeValueAsSectionOffset(DW_AT_stmt_list)) {
+      if (auto StmtOffset = toSectionOffset(CUDIE.find(DW_AT_stmt_list))) {
         DataExtractor lineData(getLineSection().Data, isLittleEndian(),
                                savedAddressByteSize);
         DWARFDebugLine::LineTable LineTable;
@@ -191,11 +222,11 @@ void DWARFContext::dump(raw_ostream &OS, DIDumpType DumpType, bool DumpEH,
     // sizes, but for simplicity we just use the address byte size of the last
     // compile unit (there is no easy and fast way to associate address range
     // list and the compile unit it describes).
-    DataExtractor rangesData(getRangeSection(), isLittleEndian(),
+    DataExtractor rangesData(getRangeSection().Data, isLittleEndian(),
                              savedAddressByteSize);
     offset = 0;
     DWARFDebugRangeList rangeList;
-    while (rangeList.extract(rangesData, &offset))
+    while (rangeList.extract(rangesData, &offset, getRangeSection().Relocs))
       rangeList.dump(OS);
   }
 
@@ -387,7 +418,7 @@ DWARFContext::getLineTableForUnit(DWARFUnit *U) {
   if (!UnitDIE)
     return nullptr;
 
-  auto Offset = UnitDIE.getAttributeValueAsSectionOffset(DW_AT_stmt_list);
+  auto Offset = toSectionOffset(UnitDIE.find(DW_AT_stmt_list));
   if (!Offset)
     return nullptr; // No line table for this compile unit.
 
@@ -440,23 +471,32 @@ DWARFCompileUnit *DWARFContext::getCompileUnitForAddress(uint64_t Address) {
   return getCompileUnitForOffset(CUOffset);
 }
 
-static bool getFunctionNameForAddress(DWARFCompileUnit *CU, uint64_t Address,
-                                      FunctionNameKind Kind,
-                                      std::string &FunctionName) {
-  if (Kind == FunctionNameKind::None)
-    return false;
+static bool getFunctionNameAndStartLineForAddress(DWARFCompileUnit *CU,
+                                                  uint64_t Address,
+                                                  FunctionNameKind Kind,
+                                                  std::string &FunctionName,
+                                                  uint32_t &StartLine) {
   // The address may correspond to instruction in some inlined function,
   // so we have to build the chain of inlined functions and take the
-  // name of the topmost function in it.SmallVectorImpl<DWARFDie> &InlinedChain
+  // name of the topmost function in it.
   SmallVector<DWARFDie, 4> InlinedChain;
   CU->getInlinedChainForAddress(Address, InlinedChain);
-  if (InlinedChain.size() == 0)
+  if (InlinedChain.empty())
     return false;
-  if (const char *Name = InlinedChain[0].getSubroutineName(Kind)) {
+
+  const DWARFDie &DIE = InlinedChain[0];
+  bool FoundResult = false;
+  const char *Name = nullptr;
+  if (Kind != FunctionNameKind::None && (Name = DIE.getSubroutineName(Kind))) {
     FunctionName = Name;
-    return true;
+    FoundResult = true;
   }
-  return false;
+  if (auto DeclLineResult = DIE.getDeclLine()) {
+    StartLine = DeclLineResult;
+    FoundResult = true;
+  }
+
+  return FoundResult;
 }
 
 DILineInfo DWARFContext::getLineInfoForAddress(uint64_t Address,
@@ -466,7 +506,9 @@ DILineInfo DWARFContext::getLineInfoForAddress(uint64_t Address,
   DWARFCompileUnit *CU = getCompileUnitForAddress(Address);
   if (!CU)
     return Result;
-  getFunctionNameForAddress(CU, Address, Spec.FNKind, Result.FunctionName);
+  getFunctionNameAndStartLineForAddress(CU, Address, Spec.FNKind,
+                                        Result.FunctionName,
+                                        Result.StartLine);
   if (Spec.FLIKind != FileLineInfoKind::None) {
     if (const DWARFLineTable *LineTable = getLineTableForUnit(CU))
       LineTable->getFileLineInfoForAddress(Address, CU->getCompilationDir(),
@@ -484,13 +526,16 @@ DWARFContext::getLineInfoForAddressRange(uint64_t Address, uint64_t Size,
     return Lines;
 
   std::string FunctionName = "<invalid>";
-  getFunctionNameForAddress(CU, Address, Spec.FNKind, FunctionName);
+  uint32_t StartLine = 0;
+  getFunctionNameAndStartLineForAddress(CU, Address, Spec.FNKind, FunctionName,
+                                        StartLine);
 
   // If the Specifier says we don't need FileLineInfo, just
   // return the top-most function at the starting address.
   if (Spec.FLIKind == FileLineInfoKind::None) {
     DILineInfo Result;
     Result.FunctionName = FunctionName;
+    Result.StartLine = StartLine;
     Lines.push_back(std::make_pair(Address, Result));
     return Lines;
   }
@@ -511,6 +556,7 @@ DWARFContext::getLineInfoForAddressRange(uint64_t Address, uint64_t Size,
     Result.FunctionName = FunctionName;
     Result.Line = Row.Line;
     Result.Column = Row.Column;
+    Result.StartLine = StartLine;
     Lines.push_back(std::make_pair(Row.Address, Result));
   }
 
@@ -543,13 +589,15 @@ DWARFContext::getInliningInfoForAddress(uint64_t Address,
     return InliningInfo;
   }
 
-  uint32_t CallFile = 0, CallLine = 0, CallColumn = 0;
+  uint32_t CallFile = 0, CallLine = 0, CallColumn = 0, CallDiscriminator = 0;
   for (uint32_t i = 0, n = InlinedChain.size(); i != n; i++) {
     DWARFDie &FunctionDIE = InlinedChain[i];
     DILineInfo Frame;
     // Get function name if necessary.
     if (const char *Name = FunctionDIE.getSubroutineName(Spec.FNKind))
       Frame.FunctionName = Name;
+    if (auto DeclLineResult = FunctionDIE.getDeclLine())
+      Frame.StartLine = DeclLineResult;
     if (Spec.FLIKind != FileLineInfoKind::None) {
       if (i == 0) {
         // For the topmost frame, initialize the line table of this
@@ -567,15 +615,77 @@ DWARFContext::getInliningInfoForAddress(uint64_t Address,
                                         Spec.FLIKind, Frame.FileName);
         Frame.Line = CallLine;
         Frame.Column = CallColumn;
+        Frame.Discriminator = CallDiscriminator;
       }
       // Get call file/line/column of a current DIE.
       if (i + 1 < n) {
-        FunctionDIE.getCallerFrame(CallFile, CallLine, CallColumn);
+        FunctionDIE.getCallerFrame(CallFile, CallLine, CallColumn,
+                                   CallDiscriminator);
       }
     }
     InliningInfo.addFrame(Frame);
   }
   return InliningInfo;
+}
+
+static Error createError(const Twine &Reason, llvm::Error E) {
+  return make_error<StringError>(Reason + toString(std::move(E)),
+                                 inconvertibleErrorCode());
+}
+
+/// Returns the address of symbol relocation used against. Used for futher
+/// relocations computation. Symbol's section load address is taken in account if
+/// LoadedObjectInfo interface is provided.
+static Expected<uint64_t> getSymbolAddress(const object::ObjectFile &Obj,
+                                           const RelocationRef &Reloc,
+                                           const LoadedObjectInfo *L) {
+  uint64_t Ret = 0;
+  object::section_iterator RSec = Obj.section_end();
+  object::symbol_iterator Sym = Reloc.getSymbol();
+
+  // First calculate the address of the symbol or section as it appears
+  // in the object file
+  if (Sym != Obj.symbol_end()) {
+    Expected<uint64_t> SymAddrOrErr = Sym->getAddress();
+    if (!SymAddrOrErr)
+      return createError("error: failed to compute symbol address: ",
+                         SymAddrOrErr.takeError());
+
+    // Also remember what section this symbol is in for later
+    auto SectOrErr = Sym->getSection();
+    if (!SectOrErr)
+      return createError("error: failed to get symbol section: ",
+                         SectOrErr.takeError());
+
+    RSec = *SectOrErr;
+    Ret = *SymAddrOrErr;
+  } else if (auto *MObj = dyn_cast<MachOObjectFile>(&Obj)) {
+    RSec = MObj->getRelocationSection(Reloc.getRawDataRefImpl());
+    Ret = RSec->getAddress();
+  }
+
+  // If we are given load addresses for the sections, we need to adjust:
+  // SymAddr = (Address of Symbol Or Section in File) -
+  //           (Address of Section in File) +
+  //           (Load Address of Section)
+  // RSec is now either the section being targeted or the section
+  // containing the symbol being targeted. In either case,
+  // we need to perform the same computation.
+  if (L && RSec != Obj.section_end())
+    if (uint64_t SectionLoadAddress = L->getSectionLoadAddress(*RSec))
+      Ret += SectionLoadAddress - RSec->getAddress();
+  return Ret;
+}
+
+static bool isRelocScattered(const object::ObjectFile &Obj,
+                             const RelocationRef &Reloc) {
+  const MachOObjectFile *MachObj = dyn_cast<MachOObjectFile>(&Obj);
+  if (!MachObj)
+    return false;
+  // MachO also has relocations that point to sections and
+  // scattered relocations.
+  auto RelocInfo = MachObj->getRelocation(Reloc.getRawDataRefImpl());
+  return MachObj->isRelocationScattered(RelocInfo);
 }
 
 DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
@@ -618,44 +728,11 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
     name = name.substr(
         name.find_first_not_of("._z")); // Skip ".", "z" and "_" prefixes.
 
-    StringRef *SectionData =
-        StringSwitch<StringRef *>(name)
-            .Case("debug_info", &InfoSection.Data)
-            .Case("debug_abbrev", &AbbrevSection)
-            .Case("debug_loc", &LocSection.Data)
-            .Case("debug_line", &LineSection.Data)
-            .Case("debug_aranges", &ARangeSection)
-            .Case("debug_frame", &DebugFrameSection)
-            .Case("eh_frame", &EHFrameSection)
-            .Case("debug_str", &StringSection)
-            .Case("debug_ranges", &RangeSection)
-            .Case("debug_macinfo", &MacinfoSection)
-            .Case("debug_pubnames", &PubNamesSection)
-            .Case("debug_pubtypes", &PubTypesSection)
-            .Case("debug_gnu_pubnames", &GnuPubNamesSection)
-            .Case("debug_gnu_pubtypes", &GnuPubTypesSection)
-            .Case("debug_info.dwo", &InfoDWOSection.Data)
-            .Case("debug_abbrev.dwo", &AbbrevDWOSection)
-            .Case("debug_loc.dwo", &LocDWOSection.Data)
-            .Case("debug_line.dwo", &LineDWOSection.Data)
-            .Case("debug_str.dwo", &StringDWOSection)
-            .Case("debug_str_offsets.dwo", &StringOffsetDWOSection)
-            .Case("debug_addr", &AddrSection)
-            .Case("apple_names", &AppleNamesSection.Data)
-            .Case("apple_types", &AppleTypesSection.Data)
-            .Case("apple_namespaces", &AppleNamespacesSection.Data)
-            .Case("apple_namespac", &AppleNamespacesSection.Data)
-            .Case("apple_objc", &AppleObjCSection.Data)
-            .Case("debug_cu_index", &CUIndexSection)
-            .Case("debug_tu_index", &TUIndexSection)
-            .Case("gdb_index", &GdbIndexSection)
-            // Any more debug info sections go here.
-            .Default(nullptr);
-    if (SectionData) {
+    if (StringRef *SectionData = MapSectionToMember(name)) {
       *SectionData = data;
       if (name == "debug_ranges") {
         // FIXME: Use the other dwo range section when we emit it.
-        RangeDWOSection = data;
+        RangeDWOSection.Data = data;
       }
     } else if (name == "debug_types") {
       // Find debug_types data by section rather than name as there are
@@ -696,6 +773,7 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
         .Case("debug_loc", &LocSection.Relocs)
         .Case("debug_info.dwo", &InfoDWOSection.Relocs)
         .Case("debug_line", &LineSection.Relocs)
+        .Case("debug_ranges", &RangeSection.Relocs)
         .Case("apple_names", &AppleNamesSection.Relocs)
         .Case("apple_types", &AppleTypesSection.Relocs)
         .Case("apple_namespaces", &AppleNamespacesSection.Relocs)
@@ -716,73 +794,19 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
     if (Section.relocation_begin() != Section.relocation_end()) {
       uint64_t SectionSize = RelocatedSection->getSize();
       for (const RelocationRef &Reloc : Section.relocations()) {
-        uint64_t Address = Reloc.getOffset();
-        uint64_t Type = Reloc.getType();
-        uint64_t SymAddr = 0;
-        uint64_t SectionLoadAddress = 0;
-        object::symbol_iterator Sym = Reloc.getSymbol();
-        object::section_iterator RSec = Obj.section_end();
+        // FIXME: it's not clear how to correctly handle scattered
+        // relocations.
+        if (isRelocScattered(Obj, Reloc))
+          continue;
 
-        // First calculate the address of the symbol or section as it appears
-        // in the objct file
-        if (Sym != Obj.symbol_end()) {
-          Expected<uint64_t> SymAddrOrErr = Sym->getAddress();
-          if (!SymAddrOrErr) {
-            std::string Buf;
-            raw_string_ostream OS(Buf);
-            logAllUnhandledErrors(SymAddrOrErr.takeError(), OS, "");
-            OS.flush();
-            errs() << "error: failed to compute symbol address: "
-                   << Buf << '\n';
-            continue;
-          }
-          SymAddr = *SymAddrOrErr;
-          // Also remember what section this symbol is in for later
-          auto SectOrErr = Sym->getSection();
-          if (!SectOrErr) {
-            std::string Buf;
-            raw_string_ostream OS(Buf);
-            logAllUnhandledErrors(SectOrErr.takeError(), OS, "");
-            OS.flush();
-            errs() << "error: failed to get symbol section: "
-                   << Buf << '\n';
-            continue;
-          }
-          RSec = *SectOrErr;
-        } else if (auto *MObj = dyn_cast<MachOObjectFile>(&Obj)) {
-          // MachO also has relocations that point to sections and
-          // scattered relocations.
-          auto RelocInfo = MObj->getRelocation(Reloc.getRawDataRefImpl());
-          if (MObj->isRelocationScattered(RelocInfo)) {
-            // FIXME: it's not clear how to correctly handle scattered
-            // relocations.
-            continue;
-          } else {
-            RSec = MObj->getRelocationSection(Reloc.getRawDataRefImpl());
-            SymAddr = RSec->getAddress();
-          }
-        }
-
-        // If we are given load addresses for the sections, we need to adjust:
-        // SymAddr = (Address of Symbol Or Section in File) -
-        //           (Address of Section in File) +
-        //           (Load Address of Section)
-        if (L != nullptr && RSec != Obj.section_end()) {
-          // RSec is now either the section being targeted or the section
-          // containing the symbol being targeted. In either case,
-          // we need to perform the same computation.
-          StringRef SecName;
-          RSec->getName(SecName);
-//           llvm::dbgs() << "Name: '" << SecName
-//                        << "', RSec: " << RSec->getRawDataRefImpl()
-//                        << ", Section: " << Section.getRawDataRefImpl() << "\n";
-          SectionLoadAddress = L->getSectionLoadAddress(*RSec);
-          if (SectionLoadAddress != 0)
-            SymAddr += SectionLoadAddress - RSec->getAddress();
+        Expected<uint64_t> SymAddrOrErr = getSymbolAddress(Obj, Reloc, L);
+        if (!SymAddrOrErr) {
+          errs() << toString(SymAddrOrErr.takeError()) << '\n';
+          continue;
         }
 
         object::RelocVisitor V(Obj);
-        object::RelocToApply R(V.visit(Type, Reloc, SymAddr));
+        object::RelocToApply R(V.visit(Reloc.getType(), Reloc, *SymAddrOrErr));
         if (V.error()) {
           SmallString<32> Name;
           Reloc.getTypeName(Name);
@@ -790,7 +814,7 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
                  << Name << "\n";
           continue;
         }
-
+        uint64_t Address = Reloc.getOffset();
         if (Address + R.Width > SectionSize) {
           errs() << "error: " << R.Width << "-byte relocation starting "
                  << Address << " bytes into section " << name << " which is "
@@ -812,4 +836,49 @@ DWARFContextInMemory::DWARFContextInMemory(const object::ObjectFile &Obj,
   }
 }
 
-void DWARFContextInMemory::anchor() { }
+DWARFContextInMemory::DWARFContextInMemory(
+    const StringMap<std::unique_ptr<MemoryBuffer>> &Sections, uint8_t AddrSize,
+    bool isLittleEndian)
+    : IsLittleEndian(isLittleEndian), AddressSize(AddrSize) {
+  for (const auto &SecIt : Sections) {
+    if (StringRef *SectionData = MapSectionToMember(SecIt.first()))
+      *SectionData = SecIt.second->getBuffer();
+  }
+}
+
+StringRef *DWARFContextInMemory::MapSectionToMember(StringRef Name) {
+  return StringSwitch<StringRef *>(Name)
+      .Case("debug_info", &InfoSection.Data)
+      .Case("debug_abbrev", &AbbrevSection)
+      .Case("debug_loc", &LocSection.Data)
+      .Case("debug_line", &LineSection.Data)
+      .Case("debug_aranges", &ARangeSection)
+      .Case("debug_frame", &DebugFrameSection)
+      .Case("eh_frame", &EHFrameSection)
+      .Case("debug_str", &StringSection)
+      .Case("debug_ranges", &RangeSection.Data)
+      .Case("debug_macinfo", &MacinfoSection)
+      .Case("debug_pubnames", &PubNamesSection)
+      .Case("debug_pubtypes", &PubTypesSection)
+      .Case("debug_gnu_pubnames", &GnuPubNamesSection)
+      .Case("debug_gnu_pubtypes", &GnuPubTypesSection)
+      .Case("debug_info.dwo", &InfoDWOSection.Data)
+      .Case("debug_abbrev.dwo", &AbbrevDWOSection)
+      .Case("debug_loc.dwo", &LocDWOSection.Data)
+      .Case("debug_line.dwo", &LineDWOSection.Data)
+      .Case("debug_str.dwo", &StringDWOSection)
+      .Case("debug_str_offsets.dwo", &StringOffsetDWOSection)
+      .Case("debug_addr", &AddrSection)
+      .Case("apple_names", &AppleNamesSection.Data)
+      .Case("apple_types", &AppleTypesSection.Data)
+      .Case("apple_namespaces", &AppleNamespacesSection.Data)
+      .Case("apple_namespac", &AppleNamespacesSection.Data)
+      .Case("apple_objc", &AppleObjCSection.Data)
+      .Case("debug_cu_index", &CUIndexSection)
+      .Case("debug_tu_index", &TUIndexSection)
+      .Case("gdb_index", &GdbIndexSection)
+      // Any more debug info sections go here.
+      .Default(nullptr);
+}
+
+void DWARFContextInMemory::anchor() {}

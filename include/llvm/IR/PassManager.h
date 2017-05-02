@@ -73,6 +73,46 @@ struct alignas(8) AnalysisKey {};
 /// if it is, the analysis knows that it itself is preserved.
 struct alignas(8) AnalysisSetKey {};
 
+/// This templated class represents "all analyses that operate over \<a
+/// particular IR unit\>" (e.g. a Function or a Module) in instances of
+/// PreservedAnalysis.
+///
+/// This lets a transformation say e.g. "I preserved all function analyses".
+///
+/// Note that you must provide an explicit instantiation declaration and
+/// definition for this template in order to get the correct behavior on
+/// Windows. Otherwise, the address of SetKey will not be stable.
+template <typename IRUnitT> class AllAnalysesOn {
+public:
+  static AnalysisSetKey *ID() { return &SetKey; }
+
+private:
+  static AnalysisSetKey SetKey;
+};
+
+template <typename IRUnitT> AnalysisSetKey AllAnalysesOn<IRUnitT>::SetKey;
+
+extern template class AllAnalysesOn<Module>;
+extern template class AllAnalysesOn<Function>;
+
+/// Represents analyses that only rely on functions' control flow.
+///
+/// This can be used with \c PreservedAnalyses to mark the CFG as preserved and
+/// to query whether it has been preserved.
+///
+/// The CFG of a function is defined as the set of basic blocks and the edges
+/// between them. Changing the set of basic blocks in a function is enough to
+/// mutate the CFG. Mutating the condition of a branch or argument of an
+/// invoked function does not mutate the CFG, but changing the successor labels
+/// of those instructions does.
+class CFGAnalyses {
+public:
+  static AnalysisSetKey *ID() { return &SetKey; }
+
+private:
+  static AnalysisSetKey SetKey;
+};
+
 /// A set of analyses that are preserved following a run of a transformation
 /// pass.
 ///
@@ -311,6 +351,8 @@ template <typename IRUnitT, typename... ExtraArgTs> class AnalysisManager;
 template <typename DerivedT> struct PassInfoMixin {
   /// Gets the name of the pass we are mixed into.
   static StringRef name() {
+    static_assert(std::is_base_of<PassInfoMixin, DerivedT>::value,
+                  "Must pass the derived type as the template argument!");
     StringRef Name = getTypeName<DerivedT>();
     if (Name.startswith("llvm::"))
       Name = Name.drop_front(strlen("llvm::"));
@@ -339,31 +381,12 @@ struct AnalysisInfoMixin : PassInfoMixin<DerivedT> {
   /// known platform with this limitation is Windows DLL builds, specifically
   /// building each part of LLVM as a DLL. If we ever remove that build
   /// configuration, this mixin can provide the static key as well.
-  static AnalysisKey *ID() { return &DerivedT::Key; }
+  static AnalysisKey *ID() {
+    static_assert(std::is_base_of<AnalysisInfoMixin, DerivedT>::value,
+                  "Must pass the derived type as the template argument!");
+    return &DerivedT::Key;
+  }
 };
-
-/// This templated class represents "all analyses that operate over \<a
-/// particular IR unit\>" (e.g. a Function or a Module) in instances of
-/// PreservedAnalysis.
-///
-/// This lets a transformation say e.g. "I preserved all function analyses".
-///
-/// Note that you must provide an explicit instantiation declaration and
-/// definition for this template in order to get the correct behavior on
-/// Windows. Otherwise, the address of SetKey will not be stable.
-template <typename IRUnitT>
-class AllAnalysesOn {
-public:
-  static AnalysisSetKey *ID() { return &SetKey; }
-
-private:
-  static AnalysisSetKey SetKey;
-};
-
-template <typename IRUnitT> AnalysisSetKey AllAnalysesOn<IRUnitT>::SetKey;
-
-extern template class AllAnalysesOn<Module>;
-extern template class AllAnalysesOn<Function>;
 
 /// \brief Manages a sequence of passes over a particular unit of IR.
 ///
@@ -774,7 +797,7 @@ public:
 
         if (DebugLogging)
           dbgs() << "Invalidating analysis: " << this->lookUpPass(ID).name()
-                 << "\n";
+                 << " on " << IR.getName() << "\n";
 
         I = ResultsList.erase(I);
         AnalysisResults.erase({ID, &IR});
@@ -815,7 +838,8 @@ private:
     if (Inserted) {
       auto &P = this->lookUpPass(ID);
       if (DebugLogging)
-        dbgs() << "Running analysis: " << P.name() << "\n";
+        dbgs() << "Running analysis: " << P.name() << " on " << IR.getName()
+               << "\n";
       AnalysisResultListT &ResultList = AnalysisResultLists[&IR];
       ResultList.emplace_back(ID, P.run(IR, *this, ExtraArgs...));
 
@@ -846,7 +870,7 @@ private:
 
     if (DebugLogging)
       dbgs() << "Invalidating analysis: " << this->lookUpPass(ID).name()
-             << "\n";
+             << " on " << IR.getName() << "\n";
     AnalysisResultLists[&IR].erase(RI->second);
     AnalysisResults.erase(RI);
   }
@@ -1010,7 +1034,7 @@ extern template class InnerAnalysisManagerProxy<FunctionAnalysisManager,
 template <typename AnalysisManagerT, typename IRUnitT, typename... ExtraArgTs>
 class OuterAnalysisManagerProxy
     : public AnalysisInfoMixin<
-          OuterAnalysisManagerProxy<AnalysisManagerT, IRUnitT>> {
+          OuterAnalysisManagerProxy<AnalysisManagerT, IRUnitT, ExtraArgTs...>> {
 public:
   /// \brief Result proxy object for \c OuterAnalysisManagerProxy.
   class Result {
@@ -1072,7 +1096,7 @@ public:
 
 private:
   friend AnalysisInfoMixin<
-      OuterAnalysisManagerProxy<AnalysisManagerT, IRUnitT>>;
+      OuterAnalysisManagerProxy<AnalysisManagerT, IRUnitT, ExtraArgTs...>>;
   static AnalysisKey Key;
 
   const AnalysisManagerT *AM;

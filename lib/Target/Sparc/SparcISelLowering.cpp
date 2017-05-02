@@ -1877,6 +1877,7 @@ void SparcTargetLowering::computeKnownBitsForTargetNode
                                 (const SDValue Op,
                                  APInt &KnownZero,
                                  APInt &KnownOne,
+                                 const APInt &DemandedElts,
                                  const SelectionDAG &DAG,
                                  unsigned Depth) const {
   APInt KnownZero2, KnownOne2;
@@ -2177,8 +2178,8 @@ SparcTargetLowering::LowerF128Op(SDValue Op, SelectionDAG &DAG,
     Entry.Node = RetPtr;
     Entry.Ty   = PointerType::getUnqual(RetTy);
     if (!Subtarget->is64Bit())
-      Entry.isSRet = true;
-    Entry.isReturned = false;
+      Entry.IsSRet = true;
+    Entry.IsReturned = false;
     Args.push_back(Entry);
     RetTyABI = Type::getVoidTy(*DAG.getContext());
   }
@@ -3233,6 +3234,7 @@ SparcTargetLowering::emitEHSjLjSetJmp(MachineInstr &MI,
                                       MachineBasicBlock *MBB) const {
   DebugLoc DL = MI.getDebugLoc();
   const TargetInstrInfo *TII = Subtarget->getInstrInfo();
+  const TargetRegisterInfo *TRI = Subtarget->getRegisterInfo();
 
   MachineFunction *MF = MBB->getParent();
   MachineRegisterInfo &MRI = MF->getRegInfo();
@@ -3244,7 +3246,8 @@ SparcTargetLowering::emitEHSjLjSetJmp(MachineInstr &MI,
 
   unsigned DstReg = MI.getOperand(0).getReg();
   const TargetRegisterClass *RC = MRI.getRegClass(DstReg);
-  assert(RC->hasType(MVT::i32) && "Invalid destination!");
+  assert(TRI->isTypeLegalForClass(*RC, MVT::i32) && "Invalid destination!");
+  (void)TRI;
   unsigned mainDstReg = MRI.createVirtualRegister(RC);
   unsigned restoreDstReg = MRI.createVirtualRegister(RC);
 
