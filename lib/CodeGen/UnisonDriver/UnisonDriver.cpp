@@ -201,6 +201,9 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   } else if (TM->getTargetTriple().getArch() == Triple::arm &&
              TM->getTargetCPU() == "arm1156t2f-s") {
     TargetName = "ARM";
+  } else if (TM->getTargetTriple().getArch() == Triple::mips &&
+             TM->getTargetCPU() == "mips32") {
+    TargetName = "Mips";
   } else {
     report_fatal_error("Target unavailable in Unison", false);
   }
