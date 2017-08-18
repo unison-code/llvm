@@ -10,13 +10,13 @@
 #include "MipsTargetObjectFile.h"
 #include "MipsSubtarget.h"
 #include "MipsTargetMachine.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ELF.h"
 #include "llvm/Target/TargetMachine.h"
 using namespace llvm;
 
@@ -35,6 +35,12 @@ ExternSData("mextern-sdata", cl::Hidden,
             cl::desc("MIPS: Use gp_rel for data that is not defined by the "
                      "current object."),
             cl::init(true));
+
+static cl::opt<bool>
+EmbeddedData("membedded-data", cl::Hidden,
+             cl::desc("MIPS: Try to allocate variables in the following"
+                      " sections if possible: .rodata, .sdata, .data ."),
+             cl::init(false));
 
 void MipsTargetObjectFile::Initialize(MCContext &Ctx, const TargetMachine &TM){
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
@@ -77,8 +83,9 @@ bool MipsTargetObjectFile::IsGlobalInSmallSection(
 bool MipsTargetObjectFile::
 IsGlobalInSmallSection(const GlobalObject *GO, const TargetMachine &TM,
                        SectionKind Kind) const {
-  return (IsGlobalInSmallSectionImpl(GO, TM) &&
-          (Kind.isData() || Kind.isBSS() || Kind.isCommon()));
+  return IsGlobalInSmallSectionImpl(GO, TM) &&
+         (Kind.isData() || Kind.isBSS() || Kind.isCommon() ||
+          Kind.isReadOnly());
 }
 
 /// Return true if this global address should be placed into small data/bss
@@ -108,6 +115,10 @@ IsGlobalInSmallSectionImpl(const GlobalObject *GO,
                        GVA->hasCommonLinkage()))
     return false;
 
+  // Enforce -membedded-data.
+  if (EmbeddedData && GVA->isConstant())
+    return false;
+
   Type *Ty = GVA->getValueType();
   return IsInSmallSection(
       GVA->getParent()->getDataLayout().getTypeAllocSize(Ty));
@@ -122,6 +133,8 @@ MCSection *MipsTargetObjectFile::SelectSectionForGlobal(
   if (Kind.isBSS() && IsGlobalInSmallSection(GO, TM, Kind))
     return SmallBSSSection;
   if (Kind.isData() && IsGlobalInSmallSection(GO, TM, Kind))
+    return SmallDataSection;
+  if (Kind.isReadOnly() && IsGlobalInSmallSection(GO, TM, Kind))
     return SmallDataSection;
 
   // Otherwise, we work the same as ELF.

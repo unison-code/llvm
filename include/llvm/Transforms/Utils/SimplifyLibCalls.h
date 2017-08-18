@@ -28,6 +28,7 @@ class Instruction;
 class TargetLibraryInfo;
 class BasicBlock;
 class Function;
+class OptimizationRemarkEmitter;
 
 /// \brief This class implements simplifications for calls to fortified library
 /// functions (__st*cpy_chk, __memcpy_chk, __memmove_chk, __memset_chk), to,
@@ -73,6 +74,7 @@ private:
   FortifiedLibCallSimplifier FortifiedSimplifier;
   const DataLayout &DL;
   const TargetLibraryInfo *TLI;
+  OptimizationRemarkEmitter &ORE;
   bool UnsafeFPShrink;
   function_ref<void(Instruction *, Value *)> Replacer;
 
@@ -87,6 +89,7 @@ private:
 
 public:
   LibCallSimplifier(const DataLayout &DL, const TargetLibraryInfo *TLI,
+                    OptimizationRemarkEmitter &ORE,
                     function_ref<void(Instruction *, Value *)> Replacer =
                         &replaceAllUsesWithDefault);
 
@@ -121,6 +124,7 @@ private:
   Value *optimizeMemCpy(CallInst *CI, IRBuilder<> &B);
   Value *optimizeMemMove(CallInst *CI, IRBuilder<> &B);
   Value *optimizeMemSet(CallInst *CI, IRBuilder<> &B);
+  Value *optimizeWcslen(CallInst *CI, IRBuilder<> &B);
   // Wrapper for all String/Memory Library Call Optimizations
   Value *optimizeStringMemoryLibCall(CallInst *CI, IRBuilder<> &B);
 
@@ -165,6 +169,9 @@ private:
   /// hasFloatVersion - Checks if there is a float version of the specified
   /// function by checking for an existing function with name FuncName + f
   bool hasFloatVersion(StringRef FuncName);
+
+  /// Shared code to optimize strlen+wcslen.
+  Value *optimizeStringLength(CallInst *CI, IRBuilder<> &B, unsigned CharSize);
 };
 } // End llvm namespace
 

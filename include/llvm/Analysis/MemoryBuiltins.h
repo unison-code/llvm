@@ -224,6 +224,9 @@ public:
   SizeOffsetType visitSelectInst(SelectInst &I);
   SizeOffsetType visitUndefValue(UndefValue&);
   SizeOffsetType visitInstruction(Instruction &I);
+
+private:
+  bool CheckedZextOrTrunc(APInt &I);
 };
 
 typedef std::pair<Value*, Value*> SizeOffsetEvalType;
@@ -235,7 +238,7 @@ class ObjectSizeOffsetEvaluator
   : public InstVisitor<ObjectSizeOffsetEvaluator, SizeOffsetEvalType> {
 
   typedef IRBuilder<TargetFolder> BuilderTy;
-  typedef std::pair<WeakVH, WeakVH> WeakEvalType;
+  typedef std::pair<WeakTrackingVH, WeakTrackingVH> WeakEvalType;
   typedef DenseMap<const Value*, WeakEvalType> CacheMapTy;
   typedef SmallPtrSet<const Value*, 8> PtrSetTy;
 

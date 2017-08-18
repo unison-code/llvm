@@ -87,23 +87,23 @@ define <1 x i128> @test_strange_type(<1 x i128> %x) {
 ; SSE2-LABEL: test_strange_type:
 ; SSE2:       # BB#0:
 ; SSE2-NEXT:    sarq $63, %rsi
-; SSE2-NEXT:    movd %rsi, %xmm0
+; SSE2-NEXT:    movq %rsi, %xmm0
 ; SSE2-NEXT:    notq %rsi
 ; SSE2-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[0,1,0,1]
 ; SSE2-NEXT:    pcmpeqd %xmm1, %xmm1
 ; SSE2-NEXT:    pxor %xmm0, %xmm1
-; SSE2-NEXT:    movd %xmm1, %rax
+; SSE2-NEXT:    movq %xmm1, %rax
 ; SSE2-NEXT:    movq %rsi, %rdx
 ; SSE2-NEXT:    retq
 ;
 ; SSE42-LABEL: test_strange_type:
 ; SSE42:       # BB#0:
 ; SSE42-NEXT:    sarq $63, %rsi
-; SSE42-NEXT:    movd %rsi, %xmm0
+; SSE42-NEXT:    movq %rsi, %xmm0
 ; SSE42-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[0,1,0,1]
 ; SSE42-NEXT:    pcmpeqd %xmm1, %xmm1
 ; SSE42-NEXT:    pxor %xmm0, %xmm1
-; SSE42-NEXT:    movd %xmm1, %rax
+; SSE42-NEXT:    movq %xmm1, %rax
 ; SSE42-NEXT:    pextrq $1, %xmm1, %rdx
 ; SSE42-NEXT:    retq
 ;
@@ -148,8 +148,8 @@ define <32 x i8> @test_pcmpgtb_256(<32 x i8> %x) {
 ; AVX1-NEXT:    vpcmpgtb %xmm1, %xmm2, %xmm1
 ; AVX1-NEXT:    vpcmpgtb %xmm0, %xmm2, %xmm0
 ; AVX1-NEXT:    vinsertf128 $1, %xmm1, %ymm0, %ymm0
-; AVX1-NEXT:    vpcmpeqd %xmm1, %xmm1, %xmm1
-; AVX1-NEXT:    vinsertf128 $1, %xmm1, %ymm1, %ymm1
+; AVX1-NEXT:    vpxor %xmm1, %xmm1, %xmm1
+; AVX1-NEXT:    vcmptrueps %ymm1, %ymm1, %ymm1
 ; AVX1-NEXT:    vxorps %ymm1, %ymm0, %ymm0
 ; AVX1-NEXT:    retq
 ;
@@ -177,8 +177,8 @@ define <16 x i16> @test_pcmpgtw_256(<16 x i16> %x) {
 ; AVX1-NEXT:    vextractf128 $1, %ymm0, %xmm0
 ; AVX1-NEXT:    vpsraw $15, %xmm0, %xmm0
 ; AVX1-NEXT:    vinsertf128 $1, %xmm0, %ymm1, %ymm0
-; AVX1-NEXT:    vpcmpeqd %xmm1, %xmm1, %xmm1
-; AVX1-NEXT:    vinsertf128 $1, %xmm1, %ymm1, %ymm1
+; AVX1-NEXT:    vpxor %xmm1, %xmm1, %xmm1
+; AVX1-NEXT:    vcmptrueps %ymm1, %ymm1, %ymm1
 ; AVX1-NEXT:    vxorps %ymm1, %ymm0, %ymm0
 ; AVX1-NEXT:    retq
 ;
@@ -206,8 +206,8 @@ define <8 x i32> @test_pcmpgtd_256(<8 x i32> %x) {
 ; AVX1-NEXT:    vextractf128 $1, %ymm0, %xmm0
 ; AVX1-NEXT:    vpsrad $31, %xmm0, %xmm0
 ; AVX1-NEXT:    vinsertf128 $1, %xmm0, %ymm1, %ymm0
-; AVX1-NEXT:    vpcmpeqd %xmm1, %xmm1, %xmm1
-; AVX1-NEXT:    vinsertf128 $1, %xmm1, %ymm1, %ymm1
+; AVX1-NEXT:    vpxor %xmm1, %xmm1, %xmm1
+; AVX1-NEXT:    vcmptrueps %ymm1, %ymm1, %ymm1
 ; AVX1-NEXT:    vxorps %ymm1, %ymm0, %ymm0
 ; AVX1-NEXT:    retq
 ;
@@ -242,14 +242,13 @@ define <4 x i64> @test_pcmpgtq_256(<4 x i64> %x) {
 ;
 ; AVX1-LABEL: test_pcmpgtq_256:
 ; AVX1:       # BB#0:
-; AVX1-NEXT:    vpsrad $31, %xmm0, %xmm1
-; AVX1-NEXT:    vpshufd {{.*#+}} xmm1 = xmm1[1,1,3,3]
-; AVX1-NEXT:    vextractf128 $1, %ymm0, %xmm0
-; AVX1-NEXT:    vpsrad $31, %xmm0, %xmm0
-; AVX1-NEXT:    vpshufd {{.*#+}} xmm0 = xmm0[1,1,3,3]
-; AVX1-NEXT:    vinsertf128 $1, %xmm0, %ymm1, %ymm0
-; AVX1-NEXT:    vpcmpeqd %xmm1, %xmm1, %xmm1
-; AVX1-NEXT:    vinsertf128 $1, %xmm1, %ymm1, %ymm1
+; AVX1-NEXT:    vextractf128 $1, %ymm0, %xmm1
+; AVX1-NEXT:    vpxor %xmm2, %xmm2, %xmm2
+; AVX1-NEXT:    vpcmpgtq %xmm1, %xmm2, %xmm1
+; AVX1-NEXT:    vpcmpgtq %xmm0, %xmm2, %xmm0
+; AVX1-NEXT:    vinsertf128 $1, %xmm1, %ymm0, %ymm0
+; AVX1-NEXT:    vpxor %xmm1, %xmm1, %xmm1
+; AVX1-NEXT:    vcmptrueps %ymm1, %ymm1, %ymm1
 ; AVX1-NEXT:    vxorps %ymm1, %ymm0, %ymm0
 ; AVX1-NEXT:    retq
 ;

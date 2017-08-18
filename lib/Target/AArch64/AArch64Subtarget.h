@@ -19,7 +19,10 @@
 #include "AArch64InstrInfo.h"
 #include "AArch64RegisterInfo.h"
 #include "AArch64SelectionDAGInfo.h"
-#include "llvm/CodeGen/GlobalISel/GISelAccessor.h"
+#include "llvm/CodeGen/GlobalISel/CallLowering.h"
+#include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
+#include "llvm/CodeGen/GlobalISel/LegalizerInfo.h"
+#include "llvm/CodeGen/GlobalISel/RegisterBankInfo.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
 #include <string>
@@ -70,6 +73,7 @@ protected:
   bool HasFullFP16 = false;
   bool HasSPE = false;
   bool HasLSLFast = false;
+  bool HasSVE = false;
 
   // HasZeroCycleRegMove - Has zero-cycle register mov instructions.
   bool HasZeroCycleRegMove = false;
@@ -82,6 +86,9 @@ protected:
 
   // NegativeImmediates - transform instructions with negative immediates
   bool NegativeImmediates = true;
+
+  // Enable 64-bit vectorization in SLP.
+  unsigned MinVectorRegisterBitWidth = 64;
 
   bool UseAA = false;
   bool PredictableSelectIsExpensive = false;
@@ -106,6 +113,7 @@ protected:
   unsigned PrefFunctionAlignment = 0;
   unsigned PrefLoopAlignment = 0;
   unsigned MaxJumpTableSize = 0;
+  unsigned WideningBaseCost = 0;
 
   // ReserveX18 - X18 is not available as a general purpose register.
   bool ReserveX18;
@@ -119,10 +127,12 @@ protected:
   AArch64InstrInfo InstrInfo;
   AArch64SelectionDAGInfo TSInfo;
   AArch64TargetLowering TLInfo;
-  /// Gather the accessor points to GlobalISel-related APIs.
-  /// This is used to avoid ifndefs spreading around while GISel is
-  /// an optional library.
-  std::unique_ptr<GISelAccessor> GISel;
+
+  /// GlobalISel related APIs.
+  std::unique_ptr<CallLowering> CallLoweringInfo;
+  std::unique_ptr<InstructionSelector> InstSelector;
+  std::unique_ptr<LegalizerInfo> Legalizer;
+  std::unique_ptr<RegisterBankInfo> RegBankInfo;
 
 private:
   /// initializeSubtargetDependencies - Initializes using CPUString and the
@@ -140,11 +150,6 @@ public:
   AArch64Subtarget(const Triple &TT, const std::string &CPU,
                    const std::string &FS, const TargetMachine &TM,
                    bool LittleEndian);
-
-  /// This object will take onwership of \p GISelAccessor.
-  void setGISelAccessor(GISelAccessor &GISel) {
-    this->GISel.reset(&GISel);
-  }
 
   const AArch64SelectionDAGInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
@@ -188,6 +193,10 @@ public:
 
   bool isXRaySupported() const override { return true; }
 
+  unsigned getMinVectorRegisterBitWidth() const {
+    return MinVectorRegisterBitWidth;
+  }
+
   bool isX18Reserved() const { return ReserveX18; }
   bool hasFPARMv8() const { return HasFPARMv8; }
   bool hasNEON() const { return HasNEON; }
@@ -210,6 +219,13 @@ public:
   bool hasArithmeticCbzFusion() const { return HasArithmeticCbzFusion; }
   bool hasFuseAES() const { return HasFuseAES; }
   bool hasFuseLiterals() const { return HasFuseLiterals; }
+
+  /// \brief Return true if the CPU supports any kind of instruction fusion.
+  bool hasFusion() const {
+    return hasArithmeticBccFusion() || hasArithmeticCbzFusion() ||
+           hasFuseAES() || hasFuseLiterals();
+  }
+
   bool useRSqrt() const { return UseRSqrt; }
   unsigned getMaxInterleaveFactor() const { return MaxInterleaveFactor; }
   unsigned getVectorInsertExtractBaseCost() const {
@@ -226,6 +242,8 @@ public:
 
   unsigned getMaximumJumpTableSize() const { return MaxJumpTableSize; }
 
+  unsigned getWideningBaseCost() const { return WideningBaseCost; }
+
   /// CPU has TBI (top byte of addresses is ignored during HW address
   /// translation) and OS enables it.
   bool supportsAddressTopByteIgnored() const;
@@ -234,6 +252,7 @@ public:
   bool hasFullFP16() const { return HasFullFP16; }
   bool hasSPE() const { return HasSPE; }
   bool hasLSLFast() const { return HasLSLFast; }
+  bool hasSVE() const { return HasSVE; }
 
   bool isLittleEndian() const { return IsLittle; }
 
@@ -287,6 +306,17 @@ public:
   bool enableEarlyIfConversion() const override;
 
   std::unique_ptr<PBQPRAConstraint> getCustomPBQPConstraints() const override;
+
+  bool isCallingConvWin64(CallingConv::ID CC) const {
+    switch (CC) {
+    case CallingConv::C:
+      return isTargetWindows();
+    case CallingConv::Win64:
+      return true;
+    default:
+      return false;
+    }
+  }
 };
 } // End llvm namespace
 

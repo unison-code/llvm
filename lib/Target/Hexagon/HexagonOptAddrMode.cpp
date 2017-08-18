@@ -1,4 +1,4 @@
-//===--- HexagonOptAddrMode.cpp -------------------------------------------===//
+//===- HexagonOptAddrMode.cpp ---------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -10,13 +10,13 @@
 // load/store instructions.
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "opt-addr-mode"
-
 #include "HexagonInstrInfo.h"
 #include "HexagonSubtarget.h"
 #include "MCTargetDesc/HexagonBaseInfo.h"
 #include "RDFGraph.h"
 #include "RDFLiveness.h"
+#include "RDFRegisters.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -33,19 +33,24 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 #include <cassert>
 #include <cstdint>
+
+#define DEBUG_TYPE "opt-addr-mode"
+
+using namespace llvm;
+using namespace rdf;
 
 static cl::opt<int> CodeGrowthLimit("hexagon-amode-growth-limit",
   cl::Hidden, cl::init(0), cl::desc("Code growth limit for address mode "
   "optimization"));
 
-using namespace llvm;
-using namespace rdf;
-
 namespace llvm {
+
   FunctionPass *createHexagonOptAddrMode();
   void initializeHexagonOptAddrModePass(PassRegistry&);
+
 } // end namespace llvm
 
 namespace {
@@ -54,9 +59,7 @@ class HexagonOptAddrMode : public MachineFunctionPass {
 public:
   static char ID;
 
-  HexagonOptAddrMode()
-      : MachineFunctionPass(ID), HII(nullptr), MDT(nullptr), DFG(nullptr),
-        LV(nullptr) {}
+  HexagonOptAddrMode() : MachineFunctionPass(ID) {}
 
   StringRef getPassName() const override {
     return "Optimize addressing mode of load/store";
@@ -72,13 +75,14 @@ public:
   bool runOnMachineFunction(MachineFunction &MF) override;
 
 private:
-  typedef DenseSet<MachineInstr *> MISetType;
-  typedef DenseMap<MachineInstr *, bool> InstrEvalMap;
-  const HexagonInstrInfo *HII;
-  MachineDominatorTree *MDT;
-  DataFlowGraph *DFG;
+  using MISetType = DenseSet<MachineInstr *>;
+  using InstrEvalMap = DenseMap<MachineInstr *, bool>;
+
+  const HexagonInstrInfo *HII = nullptr;
+  MachineDominatorTree *MDT = nullptr;
+  DataFlowGraph *DFG = nullptr;
   DataFlowGraph::DefStackMap DefM;
-  Liveness *LV;
+  Liveness *LV = nullptr;
   MISetType Deleted;
 
   bool processBlock(NodeAddr<BlockNode *> BA);
@@ -535,9 +539,9 @@ bool HexagonOptAddrMode::processBlock(NodeAddr<BlockNode *> BA) {
         !MI->getOperand(1).isGlobal())
       continue;
 
-    DEBUG(dbgs() << "[Analyzing A2_tfrsi]: " << *MI << "\n");
-    DEBUG(dbgs() << "\t[InstrNode]: " << Print<NodeAddr<InstrNode *>>(IA, *DFG)
-                 << "\n");
+    DEBUG(dbgs() << "[Analyzing " << HII->getName(MI->getOpcode()) << "]: "
+                 << *MI << "\n\t[InstrNode]: "
+                 << Print<NodeAddr<InstrNode *>>(IA, *DFG) << '\n');
 
     NodeList UNodeList;
     getAllRealUses(SA, UNodeList);
@@ -605,7 +609,9 @@ bool HexagonOptAddrMode::runOnMachineFunction(MachineFunction &MF) {
   const TargetOperandInfo TOI(*HII);
 
   DataFlowGraph G(MF, *HII, TRI, *MDT, MDF, TOI);
-  G.build();
+  // Need to keep dead phis because we can propagate uses of registers into
+  // nodes dominated by those would-be phis.
+  G.build(BuildOptions::KeepDeadPhis);
   DFG = &G;
 
   Liveness L(MRI, *DFG);

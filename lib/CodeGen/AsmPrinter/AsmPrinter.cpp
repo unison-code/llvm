@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/CodeGen/AsmPrinter.h"
 #include "AsmPrinterHandler.h"
 #include "CodeViewDebug.h"
 #include "DwarfDebug.h"
@@ -19,18 +20,19 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/ObjectUtils.h"
+#include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/BinaryFormat/ELF.h"
 #include "llvm/CodeGen/Analysis.h"
-#include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/GCMetadataPrinter.h"
 #include "llvm/CodeGen/GCStrategy.h"
@@ -82,14 +84,12 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/Support/Dwarf.h"
-#include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetLowering.h"
@@ -628,12 +628,17 @@ void AsmPrinter::EmitDebugThreadLocal(const MCExpr *Value,
 /// EmitFunctionHeader - This method emits the header for the current
 /// function.
 void AsmPrinter::EmitFunctionHeader() {
+  const Function *F = MF->getFunction();
+
+  if (isVerbose())
+    OutStreamer->GetCommentOS()
+        << "-- Begin function "
+        << GlobalValue::dropLLVMManglingEscape(F->getName()) << '\n';
+
   // Print out constants referenced by the function
   EmitConstantPool();
 
   // Print the 'header' of function.
-  const Function *F = MF->getFunction();
-
   OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(F, TM));
   EmitVisibility(CurrentFnSym, F->getVisibility());
 
@@ -820,48 +825,30 @@ static bool emitDebugValueComment(const MachineInstr *MI, AsmPrinter &AP) {
 
   const DILocalVariable *V = MI->getDebugVariable();
   if (auto *SP = dyn_cast<DISubprogram>(V->getScope())) {
-    StringRef Name = SP->getDisplayName();
+    StringRef Name = SP->getName();
     if (!Name.empty())
       OS << Name << ":";
   }
   OS << V->getName();
-
-  const DIExpression *Expr = MI->getDebugExpression();
-  auto Fragment = Expr->getFragmentInfo();
-  if (Fragment)
-    OS << " [fragment offset=" << Fragment->OffsetInBits
-       << " size=" << Fragment->SizeInBits << "]";
   OS << " <- ";
 
   // The second operand is only an offset if it's an immediate.
-  bool Deref = false;
   bool MemLoc = MI->getOperand(0).isReg() && MI->getOperand(1).isImm();
   int64_t Offset = MemLoc ? MI->getOperand(1).getImm() : 0;
-  for (unsigned i = 0; i < Expr->getNumElements(); ++i) {
-    uint64_t Op = Expr->getElement(i);
-    if (Op == dwarf::DW_OP_LLVM_fragment) {
-      // There can't be any operands after this in a valid expression
-      break;
-    } else if (Deref) {
-      // We currently don't support extra Offsets or derefs after the first
-      // one. Bail out early instead of emitting an incorrect comment.
-      OS << " [complex expression]";
-      AP.OutStreamer->emitRawComment(OS.str());
-      return true;
-    } else if (Op == dwarf::DW_OP_deref) {
-      Deref = true;
-      continue;
+  const DIExpression *Expr = MI->getDebugExpression();
+  if (Expr->getNumElements()) {
+    OS << '[';
+    bool NeedSep = false;
+    for (auto Op : Expr->expr_ops()) {
+      if (NeedSep)
+        OS << ", ";
+      else
+        NeedSep = true;
+      OS << dwarf::OperationEncodingString(Op.getOp());
+      for (unsigned I = 0; I < Op.getNumArgs(); ++I)
+        OS << ' ' << Op.getArg(I);
     }
-
-    uint64_t ExtraOffset = Expr->getElement(i++);
-    if (Op == dwarf::DW_OP_plus)
-      Offset += ExtraOffset;
-    else if (Op == dwarf::DW_OP_stack_value)
-      OS << " [stack value]";
-    else {
-      assert(Op == dwarf::DW_OP_minus);
-      Offset -= ExtraOffset;
-    }
+    OS << "] ";
   }
 
   // Register or immediate value. Register 0 means undef.
@@ -892,7 +879,7 @@ static bool emitDebugValueComment(const MachineInstr *MI, AsmPrinter &AP) {
       const TargetFrameLowering *TFI = AP.MF->getSubtarget().getFrameLowering();
       Offset += TFI->getFrameIndexReference(*AP.MF,
                                             MI->getOperand(0).getIndex(), Reg);
-      Deref = true;
+      MemLoc = true;
     }
     if (Reg == 0) {
       // Suppress offset, it is not meaningful here.
@@ -901,12 +888,12 @@ static bool emitDebugValueComment(const MachineInstr *MI, AsmPrinter &AP) {
       AP.OutStreamer->emitRawComment(OS.str());
       return true;
     }
-    if (MemLoc || Deref)
+    if (MemLoc)
       OS << '[';
     OS << PrintReg(Reg, AP.MF->getSubtarget().getRegisterInfo());
   }
 
-  if (MemLoc || Deref)
+  if (MemLoc)
     OS << '+' << Offset << ']';
 
   // NOTE: Want this comment at start of line, don't emit with AddComment.
@@ -914,7 +901,7 @@ static bool emitDebugValueComment(const MachineInstr *MI, AsmPrinter &AP) {
   return true;
 }
 
-AsmPrinter::CFIMoveType AsmPrinter::needsCFIMoves() {
+AsmPrinter::CFIMoveType AsmPrinter::needsCFIMoves() const {
   if (MAI->getExceptionHandlingType() == ExceptionHandling::DwarfCFI &&
       MF->getFunction()->needsUnwindTableEntry())
     return CFI_M_EH;
@@ -962,6 +949,19 @@ void AsmPrinter::emitFrameAlloc(const MachineInstr &MI) {
   // Emit a symbol assignment.
   OutStreamer->EmitAssignment(FrameAllocSym,
                              MCConstantExpr::create(FrameOffset, OutContext));
+}
+
+static bool needFuncLabelsForEHOrDebugInfo(const MachineFunction &MF,
+                                           MachineModuleInfo *MMI) {
+  if (!MF.getLandingPads().empty() || MF.hasEHFunclets() || MMI->hasDebugInfo())
+    return true;
+
+  // We might emit an EH table that uses function begin and end labels even if
+  // we don't have any landingpads.
+  if (!MF.getFunction()->hasPersonalityFn())
+    return false;
+  return !isNoOpWithoutInvoke(
+      classifyEHPersonality(MF.getFunction()->getPersonalityFn()));
 }
 
 /// EmitFunctionBody - This method emits the body and trailer for a
@@ -1091,8 +1091,8 @@ void AsmPrinter::EmitFunctionBody() {
   // Emit target-specific gunk after the function body.
   EmitFunctionBodyEnd();
 
-  if (!MF->getLandingPads().empty() || MMI->hasDebugInfo() ||
-      MF->hasEHFunclets() || MAI->hasDotTypeDotSizeDirective()) {
+  if (needFuncLabelsForEHOrDebugInfo(*MF, MMI) ||
+      MAI->hasDotTypeDotSizeDirective()) {
     // Create a symbol for the end of function.
     CurrentFnEnd = createTempSymbol("func_end");
     OutStreamer->EmitLabel(CurrentFnEnd);
@@ -1124,6 +1124,9 @@ void AsmPrinter::EmitFunctionBody() {
                        HI.TimerGroupDescription, TimePassesIsEnabled);
     HI.Handler->endFunction(MF);
   }
+
+  if (isVerbose())
+    OutStreamer->GetCommentOS() << "-- End function\n";
 
   OutStreamer->AddBlankLine();
 }
@@ -1285,11 +1288,7 @@ bool AsmPrinter::doFinalization(Module &M) {
 
   const TargetLoweringObjectFile &TLOF = getObjFileLowering();
 
-  // Emit module flags.
-  SmallVector<Module::ModuleFlagEntry, 8> ModuleFlags;
-  M.getModuleFlagsMetadata(ModuleFlags);
-  if (!ModuleFlags.empty())
-    TLOF.emitModuleFlags(*OutStreamer, ModuleFlags, TM);
+  TLOF.emitModuleMetadata(*OutStreamer, M, TM);
 
   if (TM.getTargetTriple().isOSBinFormatELF()) {
     MachineModuleInfoELF &MMIELF = MMI->getObjFileInfo<MachineModuleInfoELF>();
@@ -1414,8 +1413,7 @@ void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
   CurrentFnBegin = nullptr;
   CurExceptionSym = nullptr;
   bool NeedsLocalForSize = MAI->needsLocalForSize();
-  if (!MF.getLandingPads().empty() || MMI->hasDebugInfo() ||
-      MF.hasEHFunclets() || NeedsLocalForSize) {
+  if (needFuncLabelsForEHOrDebugInfo(MF, MMI) || NeedsLocalForSize) {
     CurrentFnBegin = createTempSymbol("func_begin");
     if (NeedsLocalForSize)
       CurrentFnSymForSize = CurrentFnBegin;
@@ -2779,37 +2777,61 @@ void AsmPrinter::emitXRayTable() {
 
   auto PrevSection = OutStreamer->getCurrentSectionOnly();
   auto Fn = MF->getFunction();
-  MCSection *Section = nullptr;
+  MCSection *InstMap = nullptr;
+  MCSection *FnSledIndex = nullptr;
   if (MF->getSubtarget().getTargetTriple().isOSBinFormatELF()) {
     if (Fn->hasComdat()) {
-      Section = OutContext.getELFSection("xray_instr_map", ELF::SHT_PROGBITS,
+      InstMap = OutContext.getELFSection("xray_instr_map", ELF::SHT_PROGBITS,
                                          ELF::SHF_ALLOC | ELF::SHF_GROUP, 0,
                                          Fn->getComdat()->getName());
+      FnSledIndex = OutContext.getELFSection("xray_fn_idx", ELF::SHT_PROGBITS,
+                                             ELF::SHF_ALLOC | ELF::SHF_GROUP, 0,
+                                             Fn->getComdat()->getName());
     } else {
-      Section = OutContext.getELFSection("xray_instr_map", ELF::SHT_PROGBITS,
+      InstMap = OutContext.getELFSection("xray_instr_map", ELF::SHT_PROGBITS,
                                          ELF::SHF_ALLOC);
+      FnSledIndex = OutContext.getELFSection("xray_fn_idx", ELF::SHT_PROGBITS,
+                                             ELF::SHF_ALLOC);
     }
   } else if (MF->getSubtarget().getTargetTriple().isOSBinFormatMachO()) {
-    Section = OutContext.getMachOSection("__DATA", "xray_instr_map", 0,
+    InstMap = OutContext.getMachOSection("__DATA", "xray_instr_map", 0,
                                          SectionKind::getReadOnlyWithRel());
+    FnSledIndex = OutContext.getMachOSection("__DATA", "xray_fn_idx", 0,
+                                             SectionKind::getReadOnlyWithRel());
   } else {
     llvm_unreachable("Unsupported target");
   }
 
   // Before we switch over, we force a reference to a label inside the
-  // xray_instr_map section. Since this function is always called just
-  // before the function's end, we assume that this is happening after
-  // the last return instruction.
-
+  // xray_fn_idx sections. This makes sure that the xray_fn_idx section is kept
+  // live by the linker if the function is not garbage-collected. Since this
+  // function is always called just before the function's end, we assume that
+  // this is happening after the last return instruction.
   auto WordSizeBytes = MAI->getCodePointerSize();
-  MCSymbol *Tmp = OutContext.createTempSymbol("xray_synthetic_", true);
+  MCSymbol *IdxRef = OutContext.createTempSymbol("xray_fn_idx_synth_", true);
   OutStreamer->EmitCodeAlignment(16);
-  OutStreamer->EmitSymbolValue(Tmp, WordSizeBytes, false);
-  OutStreamer->SwitchSection(Section);
-  OutStreamer->EmitLabel(Tmp);
+  OutStreamer->EmitSymbolValue(IdxRef, WordSizeBytes, false);
+
+  // Now we switch to the instrumentation map section. Because this is done
+  // per-function, we are able to create an index entry that will represent the
+  // range of sleds associated with a function.
+  MCSymbol *SledsStart = OutContext.createTempSymbol("xray_sleds_start", true);
+  OutStreamer->SwitchSection(InstMap);
+  OutStreamer->EmitLabel(SledsStart);
   for (const auto &Sled : Sleds)
     Sled.emit(WordSizeBytes, OutStreamer.get(), CurrentFnSym);
+  MCSymbol *SledsEnd = OutContext.createTempSymbol("xray_sleds_end", true);
+  OutStreamer->EmitLabel(SledsEnd);
 
+  // We then emit a single entry in the index per function. We use the symbols
+  // that bound the instrumentation map as the range for a specific function.
+  // Each entry here will be 2 * word size aligned, as we're writing down two
+  // pointers. This should work for both 32-bit and 64-bit platforms.
+  OutStreamer->SwitchSection(FnSledIndex);
+  OutStreamer->EmitCodeAlignment(2 * WordSizeBytes);
+  OutStreamer->EmitLabel(IdxRef);
+  OutStreamer->EmitSymbolValue(SledsStart, WordSizeBytes);
+  OutStreamer->EmitSymbolValue(SledsEnd, WordSizeBytes);
   OutStreamer->SwitchSection(PrevSection);
   Sleds.clear();
 }

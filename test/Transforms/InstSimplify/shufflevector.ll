@@ -118,6 +118,14 @@ define <4 x i32> @undef_mask(<4 x i32> %x) {
   ret <4 x i32> %shuf
 }
 
+define <4 x i32> @undef_mask_1(<4 x i32> %x, <4 x i32> %y) {
+; CHECK-LABEL: @undef_mask_1(
+; CHECK-NEXT:    ret <4 x i32> undef
+;
+  %shuf = shufflevector <4 x i32> %x, <4 x i32> %y, <4 x i32> undef
+  ret <4 x i32> %shuf
+}
+
 define <4 x i32> @identity_mask_0(<4 x i32> %x) {
 ; CHECK-LABEL: @identity_mask_0(
 ; CHECK-NEXT:    ret <4 x i32> [[X:%.*]]
@@ -225,3 +233,17 @@ define <8 x i64> @PR30630(<8 x i64> %x) {
   ret <8 x i64> %s7
 }
 
+; This case covers internal canonicalization of shuffles with one constant input vector.
+
+;FIXME: Another issue exposed here, this whole function could be simplified to:
+;         ret <2 x float> zeroinitializer
+define <2 x float> @PR32872(<2 x float> %x) {
+; CHECK-LABEL: @PR32872(
+; CHECK-NEXT:    [[TMP1:%.*]] = shufflevector <2 x float> [[X:%.*]], <2 x float> zeroinitializer, <4 x i32> <i32 2, i32 2, i32 0, i32 1>
+; CHECK-NEXT:    [[TMP4:%.*]] = shufflevector <4 x float> zeroinitializer, <4 x float> [[TMP1]], <2 x i32> <i32 4, i32 5>
+; CHECK-NEXT:    ret <2 x float> [[TMP4]]
+;
+  %tmp1 = shufflevector <2 x float> %x, <2 x float> zeroinitializer, <4 x i32> <i32 2, i32 2, i32 0, i32 1>
+  %tmp4 = shufflevector <4 x float> zeroinitializer, <4 x float> %tmp1, <2 x i32> <i32 4, i32 5>
+  ret <2 x float> %tmp4
+}

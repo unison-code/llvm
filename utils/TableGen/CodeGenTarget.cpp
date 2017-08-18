@@ -75,6 +75,7 @@ StringRef llvm::getEnumName(MVT::SimpleValueType T) {
   case MVT::x86mmx:   return "MVT::x86mmx";
   case MVT::Glue:     return "MVT::Glue";
   case MVT::isVoid:   return "MVT::isVoid";
+  case MVT::v1i1:     return "MVT::v1i1";
   case MVT::v2i1:     return "MVT::v2i1";
   case MVT::v4i1:     return "MVT::v4i1";
   case MVT::v8i1:     return "MVT::v8i1";
@@ -126,6 +127,7 @@ StringRef llvm::getEnumName(MVT::SimpleValueType T) {
   case MVT::v2f64:    return "MVT::v2f64";
   case MVT::v4f64:    return "MVT::v4f64";
   case MVT::v8f64:    return "MVT::v8f64";
+  case MVT::nxv1i1:   return "MVT::nxv1i1";
   case MVT::nxv2i1:   return "MVT::nxv2i1";
   case MVT::nxv4i1:   return "MVT::nxv4i1";
   case MVT::nxv8i1:   return "MVT::nxv8i1";
@@ -205,7 +207,7 @@ const StringRef CodeGenTarget::getName() const {
   return TargetRec->getName();
 }
 
-std::string CodeGenTarget::getInstNamespace() const {
+StringRef CodeGenTarget::getInstNamespace() const {
   for (const CodeGenInstruction *Inst : getInstructionsByEnumValue()) {
     // Make sure not to pick up "TargetOpcode" by accidentally getting
     // the namespace off the PHI instruction or something.
@@ -515,6 +517,8 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
   isNoReturn = false;
   isNoDuplicate = false;
   isConvergent = false;
+  isSpeculatable = false;
+  hasSideEffects = false;
 
   if (DefName.size() <= 4 ||
       std::string(DefName.begin(), DefName.begin() + 4) != "int_")
@@ -653,6 +657,10 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
       isConvergent = true;
     else if (Property->getName() == "IntrNoReturn")
       isNoReturn = true;
+    else if (Property->getName() == "IntrSpeculatable")
+      isSpeculatable = true;
+    else if (Property->getName() == "IntrHasSideEffects")
+      hasSideEffects = true;
     else if (Property->isSubClassOf("NoCapture")) {
       unsigned ArgNo = Property->getValueAsInt("ArgNo");
       ArgumentAttributes.push_back(std::make_pair(ArgNo, NoCapture));

@@ -32,6 +32,7 @@
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/ScopedPrinter.h"
+#include "llvm/Support/Threading.h"
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include <functional>
@@ -132,7 +133,7 @@ private:
   StringMap<std::string> RemappedFilenames;
 
   /// The architecture the coverage mapping data targets.
-  std::string CoverageArch;
+  std::vector<StringRef> CoverageArches;
 
   /// A cache for demangled symbols.
   DemangleCache DC;
@@ -287,26 +288,34 @@ CodeCoverageTool::createSourceFileView(StringRef SourceFile,
   auto View = SourceCoverageView::create(SourceFile, SourceBuffer.get(),
                                          ViewOpts, std::move(FileCoverage));
   attachExpansionSubViews(*View, Expansions, Coverage);
+  if (!ViewOpts.ShowFunctionInstantiations)
+    return View;
 
-  for (const auto *Function : Coverage.getInstantiations(SourceFile)) {
-    std::unique_ptr<SourceCoverageView> SubView{nullptr};
+  for (const auto &Group : Coverage.getInstantiationGroups(SourceFile)) {
+    // Skip functions which have a single instantiation.
+    if (Group.size() < 2)
+      continue;
 
-    StringRef Funcname = DC.demangle(Function->Name);
+    for (const FunctionRecord *Function : Group.getInstantiations()) {
+      std::unique_ptr<SourceCoverageView> SubView{nullptr};
 
-    if (Function->ExecutionCount > 0) {
-      auto SubViewCoverage = Coverage.getCoverageForFunction(*Function);
-      auto SubViewExpansions = SubViewCoverage.getExpansions();
-      SubView = SourceCoverageView::create(
-          Funcname, SourceBuffer.get(), ViewOpts, std::move(SubViewCoverage));
-      attachExpansionSubViews(*SubView, SubViewExpansions, Coverage);
+      StringRef Funcname = DC.demangle(Function->Name);
+
+      if (Function->ExecutionCount > 0) {
+        auto SubViewCoverage = Coverage.getCoverageForFunction(*Function);
+        auto SubViewExpansions = SubViewCoverage.getExpansions();
+        SubView = SourceCoverageView::create(
+            Funcname, SourceBuffer.get(), ViewOpts, std::move(SubViewCoverage));
+        attachExpansionSubViews(*SubView, SubViewExpansions, Coverage);
+      }
+
+      unsigned FileID = Function->CountedRegions.front().FileID;
+      unsigned Line = 0;
+      for (const auto &CR : Function->CountedRegions)
+        if (CR.FileID == FileID)
+          Line = std::max(CR.LineEnd, Line);
+      View->addInstantiation(Funcname, Line, std::move(SubView));
     }
-
-    unsigned FileID = Function->CountedRegions.front().FileID;
-    unsigned Line = 0;
-    for (const auto &CR : Function->CountedRegions)
-      if (CR.FileID == FileID)
-        Line = std::max(CR.LineEnd, Line);
-    View->addInstantiation(Funcname, Line, std::move(SubView));
   }
   return View;
 }
@@ -328,7 +337,7 @@ std::unique_ptr<CoverageMapping> CodeCoverageTool::load() {
       warning("profile data may be out of date - object is newer",
               ObjectFilename);
   auto CoverageOrErr =
-      CoverageMapping::load(ObjectFilenames, PGOFilename, CoverageArch);
+      CoverageMapping::load(ObjectFilenames, PGOFilename, CoverageArches);
   if (Error E = CoverageOrErr.takeError()) {
     error("Failed to load coverage: " + toString(std::move(E)),
           join(ObjectFilenames.begin(), ObjectFilenames.end(), ", "));
@@ -498,8 +507,8 @@ int CodeCoverageTool::run(Command Cmd, int argc, const char **argv) {
       cl::desc(
           "File with the profile data obtained after an instrumented run"));
 
-  cl::opt<std::string> Arch(
-      "arch", cl::desc("architecture of the coverage mapping binary"));
+  cl::list<std::string> Arches(
+      "arch", cl::desc("architectures of the coverage mapping binaries"));
 
   cl::opt<bool> DebugDump("dump", cl::Optional,
                           cl::desc("Show internal debug dump"));
@@ -603,19 +612,19 @@ int CodeCoverageTool::run(Command Cmd, int argc, const char **argv) {
 
     // Create the function filters
     if (!NameFilters.empty() || !NameRegexFilters.empty()) {
-      auto NameFilterer = new CoverageFilters;
+      auto NameFilterer = llvm::make_unique<CoverageFilters>();
       for (const auto &Name : NameFilters)
         NameFilterer->push_back(llvm::make_unique<NameCoverageFilter>(Name));
       for (const auto &Regex : NameRegexFilters)
         NameFilterer->push_back(
             llvm::make_unique<NameRegexCoverageFilter>(Regex));
-      Filters.push_back(std::unique_ptr<CoverageFilter>(NameFilterer));
+      Filters.push_back(std::move(NameFilterer));
     }
     if (RegionCoverageLtFilter.getNumOccurrences() ||
         RegionCoverageGtFilter.getNumOccurrences() ||
         LineCoverageLtFilter.getNumOccurrences() ||
         LineCoverageGtFilter.getNumOccurrences()) {
-      auto StatFilterer = new CoverageFilters;
+      auto StatFilterer = llvm::make_unique<CoverageFilters>();
       if (RegionCoverageLtFilter.getNumOccurrences())
         StatFilterer->push_back(llvm::make_unique<RegionCoverageFilter>(
             RegionCoverageFilter::LessThan, RegionCoverageLtFilter));
@@ -628,15 +637,22 @@ int CodeCoverageTool::run(Command Cmd, int argc, const char **argv) {
       if (LineCoverageGtFilter.getNumOccurrences())
         StatFilterer->push_back(llvm::make_unique<LineCoverageFilter>(
             RegionCoverageFilter::GreaterThan, LineCoverageGtFilter));
-      Filters.push_back(std::unique_ptr<CoverageFilter>(StatFilterer));
+      Filters.push_back(std::move(StatFilterer));
     }
 
-    if (!Arch.empty() &&
-        Triple(Arch).getArch() == llvm::Triple::ArchType::UnknownArch) {
-      error("Unknown architecture: " + Arch);
-      return 1;
+    if (!Arches.empty()) {
+      for (const std::string &Arch : Arches) {
+        if (Triple(Arch).getArch() == llvm::Triple::ArchType::UnknownArch) {
+          error("Unknown architecture: " + Arch);
+          return 1;
+        }
+        CoverageArches.emplace_back(Arch);
+      }
+      if (CoverageArches.size() != ObjectFilenames.size()) {
+        error("Number of architectures doesn't match the number of objects");
+        return 1;
+      }
     }
-    CoverageArch = Arch;
 
     for (const std::string &File : InputSourceFiles)
       collectPaths(File);
@@ -688,7 +704,7 @@ int CodeCoverageTool::show(int argc, const char **argv,
 
   cl::opt<bool> ShowInstantiations("show-instantiations", cl::Optional,
                                    cl::desc("Show function instantiations"),
-                                   cl::cat(ViewCategory));
+                                   cl::init(true), cl::cat(ViewCategory));
 
   cl::opt<std::string> ShowOutputDirectory(
       "output-dir", cl::init(""),
@@ -704,6 +720,12 @@ int CodeCoverageTool::show(int argc, const char **argv,
   cl::opt<std::string> ProjectTitle(
       "project-title", cl::Optional,
       cl::desc("Set project title for the coverage report"));
+
+  cl::opt<unsigned> NumThreads(
+      "num-threads", cl::init(0),
+      cl::desc("Number of merge threads to use (default: autodetect)"));
+  cl::alias NumThreadsA("j", cl::desc("Alias for --num-threads"),
+                        cl::aliasopt(NumThreads));
 
   auto Err = commandLineParser(argc, argv);
   if (Err)
@@ -790,15 +812,19 @@ int CodeCoverageTool::show(int argc, const char **argv,
     }
   }
 
-  // FIXME: Sink the hardware_concurrency() == 1 check into ThreadPool.
-  if (!ViewOpts.hasOutputDirectory() ||
-      std::thread::hardware_concurrency() == 1) {
+  // If NumThreads is not specified, auto-detect a good default.
+  if (NumThreads == 0)
+    NumThreads =
+        std::max(1U, std::min(llvm::heavyweight_hardware_concurrency(),
+                              unsigned(SourceFiles.size())));
+
+  if (!ViewOpts.hasOutputDirectory() || NumThreads == 1) {
     for (const std::string &SourceFile : SourceFiles)
       writeSourceFileView(SourceFile, Coverage.get(), Printer.get(),
                           ShowFilenames);
   } else {
     // In -output-dir mode, it's safe to use multiple threads to print files.
-    ThreadPool Pool;
+    ThreadPool Pool(NumThreads);
     for (const std::string &SourceFile : SourceFiles)
       Pool.async(&CodeCoverageTool::writeSourceFileView, this, SourceFile,
                  Coverage.get(), Printer.get(), ShowFilenames);

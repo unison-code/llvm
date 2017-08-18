@@ -305,6 +305,10 @@ The most important command line options are:
    - 1 : close ``stdout``
    - 2 : close ``stderr``
    - 3 : close both ``stdout`` and ``stderr``.
+``-print_coverage``
+   If 1, print coverage information as text at exit.
+``-dump_coverage``
+   If 1, dump coverage information as a .sancov file at exit.
 
 For the full list of flags run the fuzzer binary with ``-help=1``.
 
@@ -341,6 +345,9 @@ possible event codes are:
 ``NEW``
   The fuzzer has created a test input that covers new areas of the code
   under test.  This input will be saved to the primary corpus directory.
+``REDUCE``
+  The fuzzer has found a better (smaller) input that triggers previously
+  discovered features (set ``-reduce_inputs=0`` to disable).
 ``pulse``
   The fuzzer has generated 2\ :sup:`n` inputs (generated periodically to reassure
   the user that the fuzzer is still working).
@@ -543,12 +550,19 @@ You can get the coverage for your corpus like this:
 
 .. code-block:: console
 
-  ASAN_OPTIONS=coverage=1 ./fuzzer CORPUS_DIR -runs=0
+  ./fuzzer CORPUS_DIR -runs=0 -print_coverage=1
 
 This will run all tests in the CORPUS_DIR but will not perform any fuzzing.
-At the end of the process it will dump a single ``.sancov`` file with coverage 
-information.  See SanitizerCoverage_ for details on querying the file using the
-``sancov`` tool.
+At the end of the process it will print text describing what code has been covered and what hasn't.
+
+Alternatively, use
+
+.. code-block:: console
+
+  ./fuzzer CORPUS_DIR -runs=0 -dump_coverage=1
+
+which will dump a ``.sancov`` file with coverage information.
+See SanitizerCoverage_ for details on querying the file using the ``sancov`` tool.
 
 You may also use other ways to visualize coverage,
 e.g. using `Clang coverage <http://clang.llvm.org/docs/SourceBasedCodeCoverage.html>`_,
@@ -576,7 +590,7 @@ The simplest way is to have a statically initialized global object inside
 
 Alternatively, you may define an optional init function and it will receive
 the program arguments that you can read and modify. Do this **only** if you
-realy need to access ``argv``/``argc``.
+really need to access ``argv``/``argc``.
 
 .. code-block:: c++
 
@@ -610,12 +624,14 @@ you will eventually run out of RAM (see the ``-rss_limit_mb`` flag).
 Developing libFuzzer
 ====================
 
-Building libFuzzer as a part of LLVM project and running its test requires
-fresh clang as the host compiler and special CMake configuration:
+LibFuzzer is built as a part of LLVM project by default on macos and Linux.
+Users of other operating systems can explicitly request compilation using
+``-DLIBFUZZER_ENABLE=YES`` flag.
+Tests are run using ``check-fuzzer`` target from the build directory
+which was configured with ``-DLIBFUZZER_ENABLE_TESTS=ON`` flag.
 
 .. code-block:: console
 
-    cmake -GNinja  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DLLVM_USE_SANITIZER=Address -DLLVM_USE_SANITIZE_COVERAGE=YES -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON /path/to/llvm
     ninja check-fuzzer
 
 

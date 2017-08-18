@@ -229,7 +229,7 @@ public:
                      MachineInstr &MI);
 
   BlockWaitcntBrackets()
-      : WaitAtBeginning(false), ValidLoop(false), MixedExpTypes(false),
+      : WaitAtBeginning(false), RevisitLoop(false), ValidLoop(false), MixedExpTypes(false),
         LoopRegion(NULL), PostOrder(0), Waitcnt(NULL), VgprUB(0), SgprUB(0) {
     for (enum InstCounterType T = VM_CNT; T < NUM_INST_CNTS;
          T = (enum InstCounterType)(T + 1)) {
@@ -379,6 +379,7 @@ public:
     KillWaitBrackets.push_back(make_unique<BlockWaitcntBrackets>(*Bracket));
   }
 
+  bool mayAccessLDSThroughFlat(const MachineInstr &MI) const;
   MachineInstr *generateSWaitCntInstBefore(MachineInstr &MI,
                                            BlockWaitcntBrackets *ScoreBrackets);
   void updateEventWaitCntAfter(MachineInstr &Inst,
@@ -826,7 +827,8 @@ MachineInstr *SIInsertWaitcnts::generateSWaitCntInstBefore(
   // NOTE: this could be improved with knowledge of all call sites or
   //   with knowledge of the called routines.
   if (MI.getOpcode() == AMDGPU::RETURN ||
-      MI.getOpcode() == AMDGPU::SI_RETURN_TO_EPILOG) {
+      MI.getOpcode() == AMDGPU::SI_RETURN_TO_EPILOG ||
+      MI.getOpcode() == AMDGPU::S_SETPC_B64_return) {
     for (enum InstCounterType T = VM_CNT; T < NUM_INST_CNTS;
          T = (enum InstCounterType)(T + 1)) {
       if (ScoreBrackets->getScoreUB(T) > ScoreBrackets->getScoreLB(T)) {
@@ -933,6 +935,7 @@ MachineInstr *SIInsertWaitcnts::generateSWaitCntInstBefore(
     }
 #endif
 
+    // FIXME: Should not be relying on memoperands.
     // Look at the source operands of every instruction to see if
     // any of them results from a previous memory operation that affects
     // its current usage. If so, an s_waitcnt instruction needs to be
@@ -948,6 +951,7 @@ MachineInstr *SIInsertWaitcnts::generateSWaitCntInstBefore(
       EmitSwaitcnt |= ScoreBrackets->updateByWait(
           VM_CNT, ScoreBrackets->getRegScore(RegNo, VM_CNT));
     }
+
     for (unsigned I = 0, E = MI.getNumOperands(); I != E; ++I) {
       const MachineOperand &Op = MI.getOperand(I);
       const MachineRegisterInfo &MRIA = *MRI;
@@ -972,6 +976,7 @@ MachineInstr *SIInsertWaitcnts::generateSWaitCntInstBefore(
     // 2) If a destination operand that was used by a recent export/store ins,
     // add s_waitcnt on exp_cnt to guarantee the WAR order.
     if (MI.mayStore()) {
+      // FIXME: Should not be relying on memoperands.
       for (const MachineMemOperand *Memop : MI.memoperands()) {
         unsigned AS = Memop->getAddrSpace();
         if (AS != AMDGPUASI.LOCAL_ADDRESS)
@@ -1008,7 +1013,8 @@ MachineInstr *SIInsertWaitcnts::generateSWaitCntInstBefore(
   // occurs before the instruction. Doing it here prevents any additional
   // S_WAITCNTs from being emitted if the instruction was marked as
   // requiring a WAITCNT beforehand.
-  if (MI.getOpcode() == AMDGPU::S_BARRIER && ST->needWaitcntBeforeBarrier()) {
+  if (MI.getOpcode() == AMDGPU::S_BARRIER &&
+      !ST->hasAutoWaitcntBeforeBarrier()) {
     EmitSwaitcnt |=
         ScoreBrackets->updateByWait(VM_CNT, ScoreBrackets->getScoreUB(VM_CNT));
     EmitSwaitcnt |= ScoreBrackets->updateByWait(
@@ -1087,7 +1093,7 @@ MachineInstr *SIInsertWaitcnts::generateSWaitCntInstBefore(
            (CntVal[LGKM_CNT] & AMDGPU::getLgkmcntBitMask(IV)))) {
         MachineLoop *ContainingLoop = MLI->getLoopFor(MI.getParent());
         if (ContainingLoop) {
-          MachineBasicBlock *TBB = ContainingLoop->getTopBlock();
+          MachineBasicBlock *TBB = ContainingLoop->getHeader();
           BlockWaitcntBrackets *ScoreBracket =
               BlockWaitcntBracketsMap[TBB].get();
           if (!ScoreBracket) {
@@ -1097,7 +1103,7 @@ MachineInstr *SIInsertWaitcnts::generateSWaitCntInstBefore(
           }
           ScoreBracket->setRevisitLoop(true);
           DEBUG(dbgs() << "set-revisit: block"
-                       << ContainingLoop->getTopBlock()->getNumber() << '\n';);
+                       << ContainingLoop->getHeader()->getNumber() << '\n';);
         }
       }
 
@@ -1143,14 +1149,29 @@ void SIInsertWaitcnts::insertWaitcntBeforeCF(MachineBasicBlock &MBB,
   return;
 }
 
+// This is a flat memory operation. Check to see if it has memory
+// tokens for both LDS and Memory, and if so mark it as a flat.
+bool SIInsertWaitcnts::mayAccessLDSThroughFlat(const MachineInstr &MI) const {
+  if (MI.memoperands_empty())
+    return true;
+
+  for (const MachineMemOperand *Memop : MI.memoperands()) {
+    unsigned AS = Memop->getAddrSpace();
+    if (AS == AMDGPUASI.LOCAL_ADDRESS || AS == AMDGPUASI.FLAT_ADDRESS)
+      return true;
+  }
+
+  return false;
+}
+
 void SIInsertWaitcnts::updateEventWaitCntAfter(
     MachineInstr &Inst, BlockWaitcntBrackets *ScoreBrackets) {
   // Now look at the instruction opcode. If it is a memory access
   // instruction, update the upper-bound of the appropriate counter's
   // bracket and the destination operand scores.
   // TODO: Use the (TSFlags & SIInstrFlags::LGKM_CNT) property everywhere.
-  if (TII->isDS(Inst) && (Inst.mayLoad() || Inst.mayStore())) {
-    if (TII->getNamedOperand(Inst, AMDGPU::OpName::gds)->getImm() != 0) {
+  if (TII->isDS(Inst) && TII->usesLGKM_CNT(Inst)) {
+    if (TII->hasModifiersSet(Inst, AMDGPU::OpName::gds)) {
       ScoreBrackets->updateByEvent(TII, TRI, MRI, GDS_ACCESS, Inst);
       ScoreBrackets->updateByEvent(TII, TRI, MRI, GDS_GPR_LOCK, Inst);
     } else {
@@ -1158,23 +1179,18 @@ void SIInsertWaitcnts::updateEventWaitCntAfter(
     }
   } else if (TII->isFLAT(Inst)) {
     assert(Inst.mayLoad() || Inst.mayStore());
-    ScoreBrackets->updateByEvent(TII, TRI, MRI, VMEM_ACCESS, Inst);
-    ScoreBrackets->updateByEvent(TII, TRI, MRI, LDS_ACCESS, Inst);
 
-    // This is a flat memory operation. Check to see if it has memory
-    // tokens for both LDS and Memory, and if so mark it as a flat.
-    bool FoundLDSMem = false;
-    for (const MachineMemOperand *Memop : Inst.memoperands()) {
-      unsigned AS = Memop->getAddrSpace();
-      if (AS == AMDGPUASI.LOCAL_ADDRESS || AS == AMDGPUASI.FLAT_ADDRESS)
-        FoundLDSMem = true;
-    }
+    if (TII->usesVM_CNT(Inst))
+      ScoreBrackets->updateByEvent(TII, TRI, MRI, VMEM_ACCESS, Inst);
 
-    // This is a flat memory operation, so note it - it will require
-    // that both the VM and LGKM be flushed to zero if it is pending when
-    // a VM or LGKM dependency occurs.
-    if (FoundLDSMem) {
-      ScoreBrackets->setPendingFlat();
+    if (TII->usesLGKM_CNT(Inst)) {
+      ScoreBrackets->updateByEvent(TII, TRI, MRI, LDS_ACCESS, Inst);
+
+      // This is a flat memory operation, so note it - it will require
+      // that both the VM and LGKM be flushed to zero if it is pending when
+      // a VM or LGKM dependency occurs.
+      if (mayAccessLDSThroughFlat(Inst))
+        ScoreBrackets->setPendingFlat();
     }
   } else if (SIInstrInfo::isVMEM(Inst) &&
              // TODO: get a better carve out.
@@ -1183,7 +1199,7 @@ void SIInsertWaitcnts::updateEventWaitCntAfter(
              Inst.getOpcode() != AMDGPU::BUFFER_WBINVL1_VOL) {
     ScoreBrackets->updateByEvent(TII, TRI, MRI, VMEM_ACCESS, Inst);
     if ( // TODO: assumed yes -- target_info->MemWriteNeedsExpWait() &&
-        (Inst.mayStore() || AMDGPU::getAtomicNoRetOp(Inst.getOpcode()))) {
+        (Inst.mayStore() || AMDGPU::getAtomicNoRetOp(Inst.getOpcode()) != -1)) {
       ScoreBrackets->updateByEvent(TII, TRI, MRI, VMW_GPR_LOCK, Inst);
     }
   } else if (TII->isSMRD(Inst)) {
@@ -1715,6 +1731,7 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
   MRI = &MF.getRegInfo();
   MLI = &getAnalysis<MachineLoopInfo>();
   IV = AMDGPU::IsaInfo::getIsaVersion(ST->getFeatureBits());
+  const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
   AMDGPUASI = ST->getAMDGPUAS();
 
   HardwareLimits.VmcntMax = AMDGPU::getVmcntBitMask(IV);
@@ -1758,12 +1775,12 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
     // If we are walking into the block from before the loop, then guarantee
     // at least 1 re-walk over the loop to propagate the information, even if
     // no S_WAITCNT instructions were generated.
-    if (ContainingLoop && ContainingLoop->getTopBlock() == &MBB && J < I &&
+    if (ContainingLoop && ContainingLoop->getHeader() == &MBB && J < I &&
         (BlockWaitcntProcessedSet.find(&MBB) ==
          BlockWaitcntProcessedSet.end())) {
       BlockWaitcntBracketsMap[&MBB]->setRevisitLoop(true);
       DEBUG(dbgs() << "set-revisit: block"
-                   << ContainingLoop->getTopBlock()->getNumber() << '\n';);
+                   << ContainingLoop->getHeader()->getNumber() << '\n';);
     }
 
     // Walk over the instructions.
@@ -1774,7 +1791,7 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
 
     // See if we want to revisit the loop.
     if (ContainingLoop && loopBottom(ContainingLoop) == &MBB) {
-      MachineBasicBlock *EntryBB = ContainingLoop->getTopBlock();
+      MachineBasicBlock *EntryBB = ContainingLoop->getHeader();
       BlockWaitcntBrackets *EntrySB = BlockWaitcntBracketsMap[EntryBB].get();
       if (EntrySB && EntrySB->getRevisitLoop()) {
         EntrySB->setRevisitLoop(false);
@@ -1857,6 +1874,20 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
         }
       }
     }
+  }
+
+  if (!MFI->isEntryFunction()) {
+    // Wait for any outstanding memory operations that the input registers may
+    // depend on. We can't track them and it's better to to the wait after the
+    // costly call sequence.
+
+    // TODO: Could insert earlier and schedule more liberally with operations
+    // that only use caller preserved registers.
+    MachineBasicBlock &EntryBB = MF.front();
+    BuildMI(EntryBB, EntryBB.getFirstNonPHI(), DebugLoc(), TII->get(AMDGPU::S_WAITCNT))
+      .addImm(0);
+
+    Modified = true;
   }
 
   return Modified;

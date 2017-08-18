@@ -3,10 +3,11 @@
 
 // Simple test for a fuzzer. The fuzzer must find the string "Hi!".
 #include <assert.h>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <cstddef>
 #include <iostream>
+#include <ostream>
 
 static volatile int Sink;
 
@@ -17,7 +18,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     if (Size > 1 && Data[1] == 'i') {
       Sink = 2;
       if (Size > 2 && Data[2] == '!') {
-        std::cout << "BINGO; Found the target, exiting\n";
+        std::cout << "BINGO; Found the target, exiting\n" << std::flush;
         exit(0);
       }
     }

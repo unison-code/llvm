@@ -105,10 +105,10 @@ namespace llvm {
           HonorSignDependentRoundingFPMathOption(false), NoZerosInBSS(false),
           GuaranteedTailCallOpt(false), StackSymbolOrdering(true),
           EnableFastISel(false), UseInitArray(false),
-          DisableIntegratedAS(false), CompressDebugSections(false),
-          RelaxELFRelocations(false), FunctionSections(false),
-          DataSections(false), UniqueSectionNames(true), TrapUnreachable(false),
-          EmulatedTLS(false), EnableIPRA(false),
+          DisableIntegratedAS(false), RelaxELFRelocations(false),
+          FunctionSections(false), DataSections(false),
+          UniqueSectionNames(true), TrapUnreachable(false), EmulatedTLS(false),
+          EnableIPRA(false),
           Unison(false), UnisonInputFile(""), UnisonMIR(false) {}
 
     /// PrintMachineCode - This flag is enabled when the -print-machineinstrs
@@ -195,7 +195,7 @@ namespace llvm {
     unsigned DisableIntegratedAS : 1;
 
     /// Compress DWARF debug sections.
-    unsigned CompressDebugSections : 1;
+    DebugCompressionType CompressDebugSections = DebugCompressionType::None;
 
     unsigned RelaxELFRelocations : 1;
 

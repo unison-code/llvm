@@ -1,4 +1,4 @@
-//===-- llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp --*- C++ -*--===//
+//===- llvm/lib/CodeGen/AsmPrinter/CodeViewDebug.cpp ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,36 +12,83 @@
 //===----------------------------------------------------------------------===//
 
 #include "CodeViewDebug.h"
+#include "DwarfExpression.h"
+#include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/None.h"
+#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TinyPtrVector.h"
-#include "llvm/DebugInfo/CodeView/CVTypeDumper.h"
+#include "llvm/ADT/Triple.h"
+#include "llvm/ADT/Twine.h"
+#include "llvm/BinaryFormat/COFF.h"
+#include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/LexicalScopes.h"
+#include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/MachineOperand.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/DebugInfo/CodeView/CVTypeVisitor.h"
 #include "llvm/DebugInfo/CodeView/CodeView.h"
+#include "llvm/DebugInfo/CodeView/DebugInlineeLinesSubsection.h"
 #include "llvm/DebugInfo/CodeView/Line.h"
 #include "llvm/DebugInfo/CodeView/SymbolRecord.h"
-#include "llvm/DebugInfo/CodeView/TypeDatabase.h"
 #include "llvm/DebugInfo/CodeView/TypeDumpVisitor.h"
 #include "llvm/DebugInfo/CodeView/TypeIndex.h"
 #include "llvm/DebugInfo/CodeView/TypeRecord.h"
-#include "llvm/DebugInfo/CodeView/TypeVisitorCallbacks.h"
+#include "llvm/DebugInfo/CodeView/TypeTableCollection.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/IR/DebugLoc.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Metadata.h"
+#include "llvm/IR/Module.h"
 #include "llvm/MC/MCAsmInfo.h"
-#include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSectionCOFF.h"
+#include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/BinaryByteStream.h"
 #include "llvm/Support/BinaryStreamReader.h"
-#include "llvm/Support/COFF.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/Endian.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ScopedPrinter.h"
+#include "llvm/Support/SMLoc.h"
 #include "llvm/Target/TargetFrameLowering.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
+#include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
+#include <algorithm>
+#include <cassert>
+#include <cctype>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <limits>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace llvm;
 using namespace llvm::codeview;
 
 CodeViewDebug::CodeViewDebug(AsmPrinter *AP)
-    : DebugHandlerBase(AP), OS(*Asm->OutStreamer), Allocator(),
-      TypeTable(Allocator), CurFn(nullptr) {
+    : DebugHandlerBase(AP), OS(*Asm->OutStreamer), TypeTable(Allocator) {
   // If module doesn't have named metadata anchors or COFF debug section
   // is not available, skip any debug info related stuff.
   if (!MMI->getModule()->getNamedMetadata("llvm.dbg.cu") ||
@@ -177,7 +224,8 @@ static const DISubprogram *getQualifiedNameComponents(
 static std::string getQualifiedName(ArrayRef<StringRef> QualifiedNameComponents,
                                     StringRef TypeName) {
   std::string FullyQualifiedName;
-  for (StringRef QualifiedNameComponent : reverse(QualifiedNameComponents)) {
+  for (StringRef QualifiedNameComponent :
+       llvm::reverse(QualifiedNameComponents)) {
     FullyQualifiedName.append(QualifiedNameComponent);
     FullyQualifiedName.append("::");
   }
@@ -237,7 +285,7 @@ TypeIndex CodeViewDebug::getFuncIdForSubprogram(const DISubprogram *SP) {
 
   // The display name includes function template arguments. Drop them to match
   // MSVC.
-  StringRef DisplayName = SP->getDisplayName().split('<').first;
+  StringRef DisplayName = SP->getName().split('<').first;
 
   const DIScope *Scope = SP->getScope().resolve();
   TypeIndex TI;
@@ -318,7 +366,7 @@ static void addLocIfNotPresent(SmallVectorImpl<const DILocation *> &Locs,
 void CodeViewDebug::maybeRecordLocation(const DebugLoc &DL,
                                         const MachineFunction *MF) {
   // Skip this instruction if it has the same location as the previous one.
-  if (DL == CurFn->LastLoc)
+  if (!DL || DL == PrevInstLoc)
     return;
 
   const DIScope *Scope = DL.get()->getScope();
@@ -338,11 +386,11 @@ void CodeViewDebug::maybeRecordLocation(const DebugLoc &DL,
   if (!CurFn->HaveLineInfo)
     CurFn->HaveLineInfo = true;
   unsigned FileId = 0;
-  if (CurFn->LastLoc.get() && CurFn->LastLoc->getFile() == DL->getFile())
+  if (PrevInstLoc.get() && PrevInstLoc->getFile() == DL->getFile())
     FileId = CurFn->LastFileId;
   else
     FileId = CurFn->LastFileId = maybeRecordFile(DL->getFile());
-  CurFn->LastLoc = DL;
+  PrevInstLoc = DL;
 
   unsigned FuncId = CurFn->FuncId;
   if (const DILocation *SiteLoc = DL->getInlinedAt()) {
@@ -392,7 +440,7 @@ void CodeViewDebug::endModule() {
   // subprograms.
   switchToDebugSectionForSymbol(nullptr);
 
-  MCSymbol *CompilerInfo = beginCVSubsection(ModuleSubstreamKind::Symbols);
+  MCSymbol *CompilerInfo = beginCVSubsection(DebugSubsectionKind::Symbols);
   emitCompilerInformation();
   endCVSubsection(CompilerInfo);
 
@@ -416,7 +464,7 @@ void CodeViewDebug::endModule() {
 
   // Emit UDT records for any types used by global variables.
   if (!GlobalUDTs.empty()) {
-    MCSymbol *SymbolsEnd = beginCVSubsection(ModuleSubstreamKind::Symbols);
+    MCSymbol *SymbolsEnd = beginCVSubsection(DebugSubsectionKind::Symbols);
     emitDebugInfoForUDTs(GlobalUDTs);
     endCVSubsection(SymbolsEnd);
   }
@@ -468,17 +516,21 @@ void CodeViewDebug::emitTypeInformation() {
     CommentPrefix += ' ';
   }
 
-  TypeDatabase TypeDB;
-  CVTypeDumper CVTD(TypeDB);
-  TypeTable.ForEachRecord([&](TypeIndex Index, ArrayRef<uint8_t> Record) {
+  TypeTableCollection Table(TypeTable.records());
+  Optional<TypeIndex> B = Table.getFirst();
+  while (B) {
+    // This will fail if the record data is invalid.
+    CVType Record = Table.getType(*B);
+
     if (OS.isVerboseAsm()) {
       // Emit a block comment describing the type record for readability.
       SmallString<512> CommentBlock;
       raw_svector_ostream CommentOS(CommentBlock);
       ScopedPrinter SP(CommentOS);
       SP.setPrefix(CommentPrefix);
-      TypeDumpVisitor TDV(TypeDB, &SP, false);
-      Error E = CVTD.dump(Record, TDV);
+      TypeDumpVisitor TDV(Table, &SP, false);
+
+      Error E = codeview::visitTypeRecord(Record, *B, TDV);
       if (E) {
         logAllUnhandledErrors(std::move(E), errs(), "error: ");
         llvm_unreachable("produced malformed type record");
@@ -488,32 +540,11 @@ void CodeViewDebug::emitTypeInformation() {
       // newline.
       OS.emitRawComment(
           CommentOS.str().drop_front(CommentPrefix.size() - 1).rtrim());
-    } else {
-#ifndef NDEBUG
-      // Assert that the type data is valid even if we aren't dumping
-      // comments. The MSVC linker doesn't do much type record validation,
-      // so the first link of an invalid type record can succeed while
-      // subsequent links will fail with LNK1285.
-      BinaryByteStream Stream(Record, llvm::support::little);
-      CVTypeArray Types;
-      BinaryStreamReader Reader(Stream);
-      Error E = Reader.readArray(Types, Reader.getLength());
-      if (!E) {
-        TypeVisitorCallbacks C;
-        E = CVTypeVisitor(C).visitTypeStream(Types);
-      }
-      if (E) {
-        logAllUnhandledErrors(std::move(E), errs(), "error: ");
-        llvm_unreachable("produced malformed type record");
-      }
-#endif
     }
-    StringRef S(reinterpret_cast<const char *>(Record.data()), Record.size());
-    OS.EmitBinaryData(S);
-  });
+    OS.EmitBinaryData(Record.str_data());
+    B = Table.getNext(*B);
+  }
 }
-
-namespace {
 
 static SourceLanguage MapDWLangToCVLang(unsigned DWLang) {
   switch (DWLang) {
@@ -540,6 +571,8 @@ static SourceLanguage MapDWLangToCVLang(unsigned DWLang) {
     return SourceLanguage::Cobol;
   case dwarf::DW_LANG_Java:
     return SourceLanguage::Java;
+  case dwarf::DW_LANG_D:
+    return SourceLanguage::D;
   default:
     // There's no CodeView representation for this language, and CV doesn't
     // have an "unknown" option for the language field, so we'll use MASM,
@@ -548,9 +581,11 @@ static SourceLanguage MapDWLangToCVLang(unsigned DWLang) {
   }
 }
 
+namespace {
 struct Version {
   int Part[4];
 };
+} // end anonymous namespace
 
 // Takes a StringRef like "clang 4.0.0.0 (other nonsense 123)" and parses out
 // the version number.
@@ -573,19 +608,18 @@ static Version parseVersion(StringRef Name) {
 
 static CPUType mapArchToCVCPUType(Triple::ArchType Type) {
   switch (Type) {
-    case Triple::ArchType::x86:
-      return CPUType::Pentium3;
-    case Triple::ArchType::x86_64:
-      return CPUType::X64;
-    case Triple::ArchType::thumb:
-      return CPUType::Thumb;
-    default:
-      report_fatal_error("target architecture doesn't map to a CodeView "
-                         "CPUType");
+  case Triple::ArchType::x86:
+    return CPUType::Pentium3;
+  case Triple::ArchType::x86_64:
+    return CPUType::X64;
+  case Triple::ArchType::thumb:
+    return CPUType::Thumb;
+  case Triple::ArchType::aarch64:
+    return CPUType::ARM64;
+  default:
+    report_fatal_error("target architecture doesn't map to a CodeView CPUType");
   }
 }
-
-}  // anonymous namespace
 
 void CodeViewDebug::emitCompilerInformation() {
   MCContext &Context = MMI->getContext();
@@ -644,7 +678,7 @@ void CodeViewDebug::emitInlineeLinesSubsection() {
     return;
 
   OS.AddComment("Inlinee lines subsection");
-  MCSymbol *InlineEnd = beginCVSubsection(ModuleSubstreamKind::InlineeLines);
+  MCSymbol *InlineEnd = beginCVSubsection(DebugSubsectionKind::InlineeLines);
 
   // We don't provide any extra file info.
   // FIXME: Find out if debuggers use this info.
@@ -657,7 +691,7 @@ void CodeViewDebug::emitInlineeLinesSubsection() {
 
     OS.AddBlankLine();
     unsigned FileId = maybeRecordFile(SP->getFile());
-    OS.AddComment("Inlined function " + SP->getDisplayName() + " starts at " +
+    OS.AddComment("Inlined function " + SP->getName() + " starts at " +
                   SP->getFilename() + Twine(':') + Twine(SP->getLine()));
     OS.AddBlankLine();
     // The filechecksum table uses 8 byte entries for now, and file ids start at
@@ -759,17 +793,17 @@ void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
 
   // If we have a display name, build the fully qualified name by walking the
   // chain of scopes.
-  if (!SP->getDisplayName().empty())
+  if (!SP->getName().empty())
     FuncName =
-        getFullyQualifiedName(SP->getScope().resolve(), SP->getDisplayName());
+        getFullyQualifiedName(SP->getScope().resolve(), SP->getName());
 
   // If our DISubprogram name is empty, use the mangled name.
   if (FuncName.empty())
-    FuncName = GlobalValue::getRealLinkageName(GV->getName());
+    FuncName = GlobalValue::dropLLVMManglingEscape(GV->getName());
 
   // Emit a symbol subsection, required by VS2012+ to find function boundaries.
   OS.AddComment("Symbol subsection for " + Twine(FuncName));
-  MCSymbol *SymbolsEnd = beginCVSubsection(ModuleSubstreamKind::Symbols);
+  MCSymbol *SymbolsEnd = beginCVSubsection(DebugSubsectionKind::Symbols);
   {
     MCSymbol *ProcRecordBegin = MMI->getContext().createTempSymbol(),
              *ProcRecordEnd = MMI->getContext().createTempSymbol();
@@ -886,13 +920,21 @@ void CodeViewDebug::collectVariableInfoFromMFTable(
     if (!Scope)
       continue;
 
+    // If the variable has an attached offset expression, extract it.
+    // FIXME: Try to handle DW_OP_deref as well.
+    int64_t ExprOffset = 0;
+    if (VI.Expr)
+      if (!VI.Expr->extractIfOffset(ExprOffset))
+        continue;
+
     // Get the frame register used and the offset.
     unsigned FrameReg = 0;
     int FrameOffset = TFI->getFrameIndexReference(*Asm->MF, VI.Slot, FrameReg);
     uint16_t CVReg = TRI->getCodeViewRegNum(FrameReg);
 
     // Calculate the label ranges.
-    LocalVarDefRange DefRange = createDefRangeMem(CVReg, FrameOffset);
+    LocalVarDefRange DefRange =
+        createDefRangeMem(CVReg, FrameOffset + ExprOffset);
     for (const InsnRange &Range : Scope->getRanges()) {
       const MCSymbol *Begin = getLabelBeforeInsn(Range.first);
       const MCSymbol *End = getLabelAfterInsn(Range.second);
@@ -942,17 +984,29 @@ void CodeViewDebug::collectVariableInfo(const DISubprogram *SP) {
       const MachineInstr *DVInst = Range.first;
       assert(DVInst->isDebugValue() && "Invalid History entry");
       const DIExpression *DIExpr = DVInst->getDebugExpression();
+      bool InMemory = DVInst->getOperand(1).isImm();
       bool IsSubfield = false;
       unsigned StructOffset = 0;
+      // Recognize a +Offset expression.
+      int Offset = 0;
+      DIExpressionCursor Ops(DIExpr);
+      auto Op = Ops.peek();
+      if (Op && Op->getOp() == dwarf::DW_OP_plus_uconst) {
+        Offset = Op->getArg(0);
+        Ops.take();
+      }
 
       // Handle fragments.
-      auto Fragment = DIExpr->getFragmentInfo();
+      auto Fragment = Ops.getFragmentInfo();
       if (Fragment) {
         IsSubfield = true;
         StructOffset = Fragment->OffsetInBits / 8;
-      } else if (DIExpr->getNumElements() > 0) {
-        continue; // Ignore unrecognized exprs.
       }
+      // Ignore unrecognized exprs.
+      if (Ops.peek() && Ops.peek()->getOp() != dwarf::DW_OP_LLVM_fragment)
+        continue;
+      if (!InMemory && Offset)
+        continue;
 
       // Bail if operand 0 is not a valid register. This means the variable is a
       // simple constant, or is described by a complex expression.
@@ -965,8 +1019,6 @@ void CodeViewDebug::collectVariableInfo(const DISubprogram *SP) {
 
       // Handle the two cases we can handle: indirect in memory and in register.
       unsigned CVReg = TRI->getCodeViewRegNum(Reg);
-      bool InMemory = DVInst->getOperand(1).isImm();
-      int Offset = InMemory ? DVInst->getOperand(1).getImm() : 0;
       {
         LocalVarDefRange DR;
         DR.CVRegister = CVReg;
@@ -1030,11 +1082,11 @@ void CodeViewDebug::beginFunctionImpl(const MachineFunction *MF) {
   bool EmptyPrologue = true;
   for (const auto &MBB : *MF) {
     for (const auto &MI : MBB) {
-      if (!MI.isDebugValue() && !MI.getFlag(MachineInstr::FrameSetup) &&
+      if (!MI.isMetaInstruction() && !MI.getFlag(MachineInstr::FrameSetup) &&
           MI.getDebugLoc()) {
         PrologEndLoc = MI.getDebugLoc();
         break;
-      } else if (!MI.isDebugValue()) {
+      } else if (!MI.isMetaInstruction()) {
         EmptyPrologue = false;
       }
     }
@@ -1567,7 +1619,7 @@ TypeIndex CodeViewDebug::lowerTypeEnum(const DICompositeType *Ty) {
         EnumeratorCount++;
       }
     }
-    FTI = FLRB.end();
+    FTI = FLRB.end(true);
   }
 
   std::string FullName = getFullyQualifiedName(Ty);
@@ -1587,11 +1639,11 @@ struct llvm::ClassInfo {
     uint64_t BaseOffset;
   };
   // [MemberInfo]
-  typedef std::vector<MemberInfo> MemberList;
+  using MemberList = std::vector<MemberInfo>;
 
-  typedef TinyPtrVector<const DISubprogram *> MethodsList;
+  using MethodsList = TinyPtrVector<const DISubprogram *>;
   // MethodName -> MethodsList
-  typedef MapVector<MDString *, MethodsList> MethodsMap;
+  using MethodsMap = MapVector<MDString *, MethodsList>;
 
   /// Base classes.
   std::vector<const DIDerivedType *> Inheritance;
@@ -1703,10 +1755,12 @@ TypeIndex CodeViewDebug::lowerCompleteTypeClass(const DICompositeType *Ty) {
                  SizeInBytes, FullName, Ty->getIdentifier());
   TypeIndex ClassTI = TypeTable.writeKnownType(CR);
 
-  StringIdRecord SIDR(TypeIndex(0x0), getFullFilepath(Ty->getFile()));
-  TypeIndex SIDI = TypeTable.writeKnownType(SIDR);
-  UdtSourceLineRecord USLR(ClassTI, SIDI, Ty->getLine());
-  TypeTable.writeKnownType(USLR);
+  if (const auto *File = Ty->getFile()) {
+    StringIdRecord SIDR(TypeIndex(0x0), getFullFilepath(File));
+    TypeIndex SIDI = TypeTable.writeKnownType(SIDR);
+    UdtSourceLineRecord USLR(ClassTI, SIDI, Ty->getLine());
+    TypeTable.writeKnownType(USLR);
+  }
 
   addToUDTs(Ty, ClassTI);
 
@@ -1854,7 +1908,7 @@ CodeViewDebug::lowerRecordFieldList(const DICompositeType *Ty) {
           translateMethodOptionFlags(SP), VFTableOffset, Name));
       MemberCount++;
     }
-    assert(Methods.size() > 0 && "Empty methods map entry");
+    assert(!Methods.empty() && "Empty methods map entry");
     if (Methods.size() == 1)
       FLBR.writeMemberType(Methods[0]);
     else {
@@ -1872,7 +1926,7 @@ CodeViewDebug::lowerRecordFieldList(const DICompositeType *Ty) {
     MemberCount++;
   }
 
-  TypeIndex FieldTI = FLBR.end();
+  TypeIndex FieldTI = FLBR.end(true);
   return std::make_tuple(FieldTI, Info.VShapeTI, MemberCount,
                          !Info.NestedClasses.empty());
 }
@@ -2108,13 +2162,29 @@ void CodeViewDebug::beginInstruction(const MachineInstr *MI) {
   if (!Asm || !CurFn || MI->isDebugValue() ||
       MI->getFlag(MachineInstr::FrameSetup))
     return;
+
+  // If the first instruction of a new MBB has no location, find the first
+  // instruction with a location and use that.
   DebugLoc DL = MI->getDebugLoc();
-  if (DL == PrevInstLoc || !DL)
+  if (!DL && MI->getParent() != PrevInstBB) {
+    for (const auto &NextMI : *MI->getParent()) {
+      if (NextMI.isDebugValue())
+        continue;
+      DL = NextMI.getDebugLoc();
+      if (DL)
+        break;
+    }
+  }
+  PrevInstBB = MI->getParent();
+
+  // If we still don't have a debug location, don't record a location.
+  if (!DL)
     return;
+
   maybeRecordLocation(DL, Asm->MF);
 }
 
-MCSymbol *CodeViewDebug::beginCVSubsection(ModuleSubstreamKind Kind) {
+MCSymbol *CodeViewDebug::beginCVSubsection(DebugSubsectionKind Kind) {
   MCSymbol *BeginLabel = MMI->getContext().createTempSymbol(),
            *EndLabel = MMI->getContext().createTempSymbol();
   OS.EmitIntValue(unsigned(Kind), 4);
@@ -2174,7 +2244,7 @@ void CodeViewDebug::emitDebugInfoForGlobals() {
         if (!GV->hasComdat() && !GV->isDeclarationForLinker()) {
           if (!EndLabel) {
             OS.AddComment("Symbol subsection for globals");
-            EndLabel = beginCVSubsection(ModuleSubstreamKind::Symbols);
+            EndLabel = beginCVSubsection(DebugSubsectionKind::Symbols);
           }
           // FIXME: emitDebugInfoForGlobal() doesn't handle DIExpressions.
           emitDebugInfoForGlobal(GVE->getVariable(), GV, Asm->getSymbol(GV));
@@ -2190,9 +2260,9 @@ void CodeViewDebug::emitDebugInfoForGlobals() {
         if (GV->hasComdat()) {
           MCSymbol *GVSym = Asm->getSymbol(GV);
           OS.AddComment("Symbol subsection for " +
-                        Twine(GlobalValue::getRealLinkageName(GV->getName())));
+                        Twine(GlobalValue::dropLLVMManglingEscape(GV->getName())));
           switchToDebugSectionForSymbol(GVSym);
-          EndLabel = beginCVSubsection(ModuleSubstreamKind::Symbols);
+          EndLabel = beginCVSubsection(DebugSubsectionKind::Symbols);
           // FIXME: emitDebugInfoForGlobal() doesn't handle DIExpressions.
           emitDebugInfoForGlobal(GVE->getVariable(), GV, GVSym);
           endCVSubsection(EndLabel);

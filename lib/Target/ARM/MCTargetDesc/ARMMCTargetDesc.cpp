@@ -11,9 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "ARMMCTargetDesc.h"
 #include "ARMBaseInfo.h"
 #include "ARMMCAsmInfo.h"
-#include "ARMMCTargetDesc.h"
 #include "InstPrinter/ARMInstPrinter.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/MC/MCELFStreamer.h"
@@ -136,8 +136,8 @@ std::string ARM_MC::ParseARMTriple(const Triple &TT, StringRef CPU) {
 
   std::string ARMArchFeature;
 
-  unsigned ArchID = ARM::parseArch(TT.getArchName());
-  if (ArchID != ARM::AK_INVALID &&  (CPU.empty() || CPU == "generic"))
+  ARM::ArchKind ArchID = ARM::parseArch(TT.getArchName());
+  if (ArchID != ARM::ArchKind::INVALID &&  (CPU.empty() || CPU == "generic"))
     ARMArchFeature = (ARMArchFeature + "+" + ARM::getArchName(ArchID)).str();
 
   if (isThumb) {

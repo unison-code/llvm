@@ -33,7 +33,7 @@ namespace pdb {
 class DbiStream;
 class GlobalsStream;
 class InfoStream;
-class StringTable;
+class PDBStringTable;
 class PDBFileBuilder;
 class PublicsStream;
 class SymbolStream;
@@ -71,8 +71,6 @@ public:
   Error setBlockData(uint32_t BlockIndex, uint32_t Offset,
                      ArrayRef<uint8_t> Data) const override;
 
-  ArrayRef<uint32_t> getFpmPages() const { return FpmPages; }
-
   ArrayRef<support::ulittle32_t> getStreamSizes() const {
     return ContainerLayout.StreamSizes;
   }
@@ -85,6 +83,9 @@ public:
 
   ArrayRef<support::ulittle32_t> getDirectoryBlockArray() const;
 
+  msf::MSFStreamLayout getStreamLayout(uint32_t StreamIdx) const;
+  msf::MSFStreamLayout getFpmStreamLayout() const;
+
   Error parseFileHeaders();
   Error parseStreamData();
 
@@ -95,7 +96,7 @@ public:
   Expected<TpiStream &> getPDBIpiStream();
   Expected<PublicsStream &> getPDBPublicsStream();
   Expected<SymbolStream &> getPDBSymbolStream();
-  Expected<StringTable &> getStringTable();
+  Expected<PDBStringTable &> getStringTable();
 
   BumpPtrAllocator &getAllocator() { return Allocator; }
 
@@ -106,7 +107,9 @@ public:
   bool hasPDBPublicsStream();
   bool hasPDBSymbolStream();
   bool hasPDBTpiStream() const;
-  bool hasStringTable();
+  bool hasPDBStringTable();
+
+  uint32_t getPointerSize();
 
 private:
   Expected<std::unique_ptr<msf::MappedBlockStream>>
@@ -119,7 +122,6 @@ private:
 
   std::unique_ptr<BinaryStream> Buffer;
 
-  std::vector<uint32_t> FpmPages;
   msf::MSFLayout ContainerLayout;
 
   std::unique_ptr<GlobalsStream> Globals;
@@ -131,7 +133,7 @@ private:
   std::unique_ptr<SymbolStream> Symbols;
   std::unique_ptr<msf::MappedBlockStream> DirectoryStream;
   std::unique_ptr<msf::MappedBlockStream> StringTableStream;
-  std::unique_ptr<StringTable> Strings;
+  std::unique_ptr<PDBStringTable> Strings;
 };
 }
 }

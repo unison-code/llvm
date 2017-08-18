@@ -26,10 +26,6 @@ using namespace llvm;
 #define GET_TARGET_REGBANK_INFO_IMPL
 #include "X86GenRegisterBankInfo.def"
 
-#ifndef LLVM_BUILD_GLOBAL_ISEL
-#error "You shouldn't build this"
-#endif
-
 X86RegisterBankInfo::X86RegisterBankInfo(const TargetRegisterInfo &TRI)
     : X86GenRegisterBankInfo() {
 
@@ -139,8 +135,9 @@ bool X86RegisterBankInfo::getInstrValueMapping(
   return true;
 }
 
-RegisterBankInfo::InstructionMapping
-X86RegisterBankInfo::getSameOperandsMapping(const MachineInstr &MI, bool isFP) {
+const RegisterBankInfo::InstructionMapping &
+X86RegisterBankInfo::getSameOperandsMapping(const MachineInstr &MI,
+                                            bool isFP) const {
   const MachineFunction &MF = *MI.getParent()->getParent();
   const MachineRegisterInfo &MRI = MF.getRegInfo();
 
@@ -152,10 +149,10 @@ X86RegisterBankInfo::getSameOperandsMapping(const MachineInstr &MI, bool isFP) {
     llvm_unreachable("Unsupported operand mapping yet.");
 
   auto Mapping = getValueMapping(getPartialMappingIdx(Ty, isFP), 3);
-  return InstructionMapping{DefaultMappingID, 1, Mapping, NumOperands};
+  return getInstructionMapping(DefaultMappingID, 1, Mapping, NumOperands);
 }
 
-RegisterBankInfo::InstructionMapping
+const RegisterBankInfo::InstructionMapping &
 X86RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   const MachineFunction &MF = *MI.getParent()->getParent();
   const MachineRegisterInfo &MRI = MF.getRegInfo();
@@ -164,7 +161,7 @@ X86RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   // Try the default logic for non-generic instructions that are either copies
   // or already have some operands assigned to banks.
   if (!isPreISelGenericOpcode(Opc)) {
-    InstructionMapping Mapping = getInstrMappingImpl(MI);
+    const InstructionMapping &Mapping = getInstrMappingImpl(MI);
     if (Mapping.isValid())
       return Mapping;
   }
@@ -193,10 +190,10 @@ X86RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   // Finally construct the computed mapping.
   SmallVector<const ValueMapping *, 8> OpdsMapping(NumOperands);
   if (!getInstrValueMapping(MI, OpRegBankIdx, OpdsMapping))
-    return InstructionMapping();
+    return getInvalidInstructionMapping();
 
-  return InstructionMapping{DefaultMappingID, /* Cost */ 1,
-                            getOperandsMapping(OpdsMapping), NumOperands};
+  return getInstructionMapping(DefaultMappingID, /* Cost */ 1,
+                               getOperandsMapping(OpdsMapping), NumOperands);
 }
 
 void X86RegisterBankInfo::applyMappingImpl(
@@ -231,10 +228,10 @@ X86RegisterBankInfo::getInstrAlternativeMappings(const MachineInstr &MI) const {
     if (!getInstrValueMapping(MI, OpRegBankIdx, OpdsMapping))
       break;
 
-    RegisterBankInfo::InstructionMapping Mapping = InstructionMapping{
-        /*ID*/ 1, /*Cost*/ 1, getOperandsMapping(OpdsMapping), NumOperands};
+    const RegisterBankInfo::InstructionMapping &Mapping = getInstructionMapping(
+        /*ID*/ 1, /*Cost*/ 1, getOperandsMapping(OpdsMapping), NumOperands);
     InstructionMappings AltMappings;
-    AltMappings.emplace_back(std::move(Mapping));
+    AltMappings.push_back(&Mapping);
     return AltMappings;
   }
   default:

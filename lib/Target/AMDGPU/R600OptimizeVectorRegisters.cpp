@@ -124,7 +124,7 @@ private:
 public:
   static char ID;
 
-  R600VectorRegMerger(TargetMachine &tm) : MachineFunctionPass(ID),
+  R600VectorRegMerger() : MachineFunctionPass(ID),
   TII(nullptr) { }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -145,7 +145,14 @@ public:
 
 } // end anonymous namespace.
 
+INITIALIZE_PASS_BEGIN(R600VectorRegMerger, DEBUG_TYPE,
+                     "R600 Vector Reg Merger", false, false)
+INITIALIZE_PASS_END(R600VectorRegMerger, DEBUG_TYPE,
+                    "R600 Vector Reg Merger", false, false)
+
 char R600VectorRegMerger::ID = 0;
+
+char &llvm::R600VectorRegMergerID = R600VectorRegMerger::ID;
 
 bool R600VectorRegMerger::canSwizzle(const MachineInstr &MI)
     const {
@@ -396,6 +403,6 @@ bool R600VectorRegMerger::runOnMachineFunction(MachineFunction &Fn) {
   return false;
 }
 
-llvm::FunctionPass *llvm::createR600VectorRegMerger(TargetMachine &tm) {
-  return new R600VectorRegMerger(tm);
+llvm::FunctionPass *llvm::createR600VectorRegMerger() {
+  return new R600VectorRegMerger();
 }

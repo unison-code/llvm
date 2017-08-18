@@ -230,6 +230,10 @@
 ...
 ---
 name:            _ZN1sC2Ei
+tracksRegLiveness: true
+liveins:
+  - { reg: '%rdi' }
+  - { reg: '%esi' }
 fixedStack:
   - { id: 0, type: spill-slot, offset: -32, size: 8, alignment: 16, callee-saved-register: '%rbx' }
   - { id: 1, type: spill-slot, offset: -24, size: 8, alignment: 8, callee-saved-register: '%r14' }

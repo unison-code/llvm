@@ -2,16 +2,16 @@
 // License. See LICENSE.TXT for details.
 
 // Simple test for a fuzzer. The fuzzer must find a particular string.
-#include <cstring>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 static volatile int sink;
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   // TODO: check other sizes.
-  char *S = (char*)Data;
+  const char *S = (const char*)Data;
   if (Size >= 8 && strncmp(S, "123", 8))
     sink = 1;
   if (Size >= 8 && strncmp(S, "01234567", 8) == 0) {

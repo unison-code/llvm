@@ -2,18 +2,18 @@
 // License. See LICENSE.TXT for details.
 
 // Break through a series of strcmp.
-#include <cstring>
+#include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <cassert>
+#include <cstring>
 
 bool Eq(const uint8_t *Data, size_t Size, const char *Str) {
   char Buff[1024];
   size_t Len = strlen(Str);
   if (Size < Len) return false;
   if (Len >= sizeof(Buff)) return false;
-  memcpy(Buff, (char*)Data, Len);
+  memcpy(Buff, (const char*)Data, Len);
   Buff[Len] = 0;
   int res = strcmp(Buff, Str);
   return res == 0;

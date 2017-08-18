@@ -47,10 +47,6 @@
 
 using namespace llvm;
 
-#ifndef LLVM_BUILD_GLOBAL_ISEL
-#error "This shouldn't be built without GISel"
-#endif
-
 AArch64CallLowering::AArch64CallLowering(const AArch64TargetLowering &TLI)
   : CallLowering(&TLI) {}
 
@@ -247,7 +243,7 @@ bool AArch64CallLowering::lowerFormalArguments(MachineIRBuilder &MIRBuilder,
   unsigned i = 0;
   for (auto &Arg : F.args()) {
     ArgInfo OrigArg{VRegs[i], Arg.getType()};
-    setArgFlags(OrigArg, i + 1, DL, F);
+    setArgFlags(OrigArg, i + AttributeList::FirstArgIndex, DL, F);
     bool Split = false;
     LLT Ty = MRI.getType(VRegs[i]);
     unsigned Dst = VRegs[i];
@@ -380,7 +376,7 @@ bool AArch64CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
       MIRBuilder.buildSequence(OrigRet.Reg, SplitRegs, RegOffsets);
   }
 
-  CallSeqStart.addImm(Handler.StackSize);
+  CallSeqStart.addImm(Handler.StackSize).addImm(0);
   MIRBuilder.buildInstr(AArch64::ADJCALLSTACKUP)
       .addImm(Handler.StackSize)
       .addImm(0);

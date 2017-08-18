@@ -1,4 +1,14 @@
 ; RUN: llc -march=amdgcn -verify-machineinstrs -amdgpu-s-branch-bits=4 < %s | FileCheck -check-prefix=GCN %s
+
+
+; FIXME: We should use llvm-mc for this, but we can't even parse our own output.
+;        See PR33579.
+; RUN: llc -march=amdgcn -verify-machineinstrs -amdgpu-s-branch-bits=4 -o %t.o -filetype=obj %s
+; RUN: llvm-readobj -r %t.o | FileCheck --check-prefix=OBJ %s
+
+; OBJ:       Relocations [
+; OBJ-NEXT: ]
+
 ; Restrict maximum branch to between +7 and -8 dwords
 
 ; Used to emit an always 4 byte instruction. Inline asm always assumes
@@ -131,7 +141,6 @@ bb3:
 ; GCN: buffer_load_dword
 ; GCN: v_cmp_ne_u32_e32 vcc, 0, v{{[0-9]+}}
 ; GCN: s_and_saveexec_b64 [[SAVE:s\[[0-9]+:[0-9]+\]]], vcc
-; GCN: s_xor_b64 [[SAVE]], exec, [[SAVE]]
 
 ; GCN: v_nop_e64
 ; GCN: v_nop_e64
@@ -223,7 +232,6 @@ bb3:
 ; GCN-NEXT: [[BB2]]: ; %bb2
 ; GCN: v_mov_b32_e32 [[BB2_K:v[0-9]+]], 17
 ; GCN: buffer_store_dword [[BB2_K]]
-; GCN: s_waitcnt vmcnt(0)
 
 ; GCN-NEXT: [[LONG_JUMP1:BB[0-9]+_[0-9]+]]: ; %bb2
 ; GCN-NEXT: s_getpc_b64 vcc
@@ -376,7 +384,6 @@ bb3:
 ; GCN-LABEL: {{^}}uniform_inside_divergent:
 ; GCN: v_cmp_gt_u32_e32 vcc, 16, v{{[0-9]+}}
 ; GCN-NEXT: s_and_saveexec_b64 [[MASK:s\[[0-9]+:[0-9]+\]]], vcc
-; GCN-NEXT: s_xor_b64  [[MASK1:s\[[0-9]+:[0-9]+\]]], exec, [[MASK]]
 ; GCN-NEXT: ; mask branch [[ENDIF:BB[0-9]+_[0-9]+]]
 ; GCN-NEXT: s_cbranch_execnz [[IF:BB[0-9]+_[0-9]+]]
 
@@ -393,7 +400,6 @@ bb3:
 
 ; GCN-NEXT: ; BB#2: ; %if_uniform
 ; GCN: buffer_store_dword
-; GCN: s_waitcnt vmcnt(0)
 
 ; GCN-NEXT: [[ENDIF]]: ; %endif
 ; GCN-NEXT: s_or_b64 exec, exec, [[MASK]]
@@ -428,7 +434,6 @@ endif:
 ; GCN-LABEL: {{^}}analyze_mask_branch:
 ; GCN: v_cmp_lt_f32_e32 vcc
 ; GCN-NEXT: s_and_saveexec_b64 [[MASK:s\[[0-9]+:[0-9]+\]]], vcc
-; GCN-NEXT: s_xor_b64 [[MASK]], exec, [[MASK]]
 ; GCN-NEXT: ; mask branch [[RET:BB[0-9]+_[0-9]+]]
 ; GCN-NEXT: s_cbranch_execz [[BRANCH_SKIP:BB[0-9]+_[0-9]+]]
 ; GCN-NEXT: s_branch [[LOOP_BODY:BB[0-9]+_[0-9]+]]

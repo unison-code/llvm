@@ -329,16 +329,17 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
 
   MF.deleteJumpTableInfo();
 
+  MF.reset();
+
   LLVMContext Context;
   SMDiagnostic ErrDiag;
   std::unique_ptr<Module> M;
   std::unique_ptr<MIRParser> MIR;
   MIR = createMIRParserFromFile(Unisonmir, ErrDiag, Context);
-  if (MIR) {
-    M = MIR->parseLLVMModule();
-    assert(M && "parseLLVMModule should exit on failure");
-  }
-  MIR->initializeMachineFunction(MF);
+  M = MIR->parseIRModule();
+  assert(M && "parseIRModule should exit on failure");
+  // Inject back the parsed machine function into MF
+  MIR->setMachineFunction(MF);
 
   cleanPaths();
   return true;

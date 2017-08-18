@@ -12,15 +12,14 @@
 /// computing their address on the fly ; it also sets STACK_SIZE info.
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Support/Debug.h"
 #include "AMDGPU.h"
 #include "AMDGPUSubtarget.h"
 #include "R600Defines.h"
 #include "R600InstrInfo.h"
 #include "R600MachineFunctionInfo.h"
 #include "R600RegisterInfo.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -30,6 +29,7 @@
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/DebugLoc.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -230,7 +230,6 @@ private:
     CF_END
   };
 
-  static char ID;
   const R600InstrInfo *TII = nullptr;
   const R600RegisterInfo *TRI = nullptr;
   unsigned MaxFetchInst;
@@ -499,7 +498,9 @@ private:
   }
 
 public:
-  R600ControlFlowFinalizer(TargetMachine &tm) : MachineFunctionPass(ID) {}
+  static char ID;
+
+  R600ControlFlowFinalizer() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override {
     ST = &MF.getSubtarget<R600Subtarget>();
@@ -555,7 +556,7 @@ public:
             CFStack.pushBranch(AMDGPU::CF_PUSH_EG);
           } else
             CFStack.pushBranch(AMDGPU::CF_ALU_PUSH_BEFORE);
-
+          LLVM_FALLTHROUGH;
         case AMDGPU::CF_ALU:
           I = MI;
           AluClauses.push_back(MakeALUClause(MBB, I));
@@ -702,10 +703,17 @@ public:
   }
 };
 
-char R600ControlFlowFinalizer::ID = 0;
-
 } // end anonymous namespace
 
-FunctionPass *llvm::createR600ControlFlowFinalizer(TargetMachine &TM) {
-  return new R600ControlFlowFinalizer(TM);
+INITIALIZE_PASS_BEGIN(R600ControlFlowFinalizer, DEBUG_TYPE,
+                     "R600 Control Flow Finalizer", false, false)
+INITIALIZE_PASS_END(R600ControlFlowFinalizer, DEBUG_TYPE,
+                    "R600 Control Flow Finalizer", false, false)
+
+char R600ControlFlowFinalizer::ID = 0;
+
+char &llvm::R600ControlFlowFinalizerID = R600ControlFlowFinalizer::ID;
+
+FunctionPass *llvm::createR600ControlFlowFinalizer() {
+  return new R600ControlFlowFinalizer();
 }

@@ -17,11 +17,11 @@
 #define LLVM_CODEGEN_BASICTTIIMPL_H
 
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfoImpl.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
-#include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace llvm {
 
@@ -93,6 +93,8 @@ public:
 
   bool isSourceOfDivergence(const Value *V) { return false; }
 
+  bool isAlwaysUniform(const Value *V) { return false; }
+
   unsigned getFlatAddressSpace() {
     // Return an invalid address space.
     return -1;
@@ -108,13 +110,17 @@ public:
 
   bool isLegalAddressingMode(Type *Ty, GlobalValue *BaseGV, int64_t BaseOffset,
                              bool HasBaseReg, int64_t Scale,
-                             unsigned AddrSpace) {
+                             unsigned AddrSpace, Instruction *I = nullptr) {
     TargetLoweringBase::AddrMode AM;
     AM.BaseGV = BaseGV;
     AM.BaseOffs = BaseOffset;
     AM.HasBaseReg = HasBaseReg;
     AM.Scale = Scale;
-    return getTLI()->isLegalAddressingMode(DL, AM, Ty, AddrSpace);
+    return getTLI()->isLegalAddressingMode(DL, AM, Ty, AddrSpace, I);
+  }
+
+  bool isLSRCostLess(TTI::LSRCost C1, TTI::LSRCost C2) {
+    return TargetTransformInfoImplBase::isLSRCostLess(C1, C2);
   }
 
   int getScalingFactorCost(Type *Ty, GlobalValue *BaseGV, int64_t BaseOffset,
@@ -149,6 +155,18 @@ public:
     return BaseT::getGEPCost(PointeeType, Ptr, Operands);
   }
 
+  int getExtCost(const Instruction *I, const Value *Src) {
+    if (getTLI()->isExtFree(I))
+      return TargetTransformInfo::TCC_Free;
+
+    if (isa<ZExtInst>(I) || isa<SExtInst>(I))
+      if (const LoadInst *LI = dyn_cast<LoadInst>(Src))
+        if (getTLI()->isExtLoad(LI, I, DL))
+          return TargetTransformInfo::TCC_Free;
+
+    return TargetTransformInfo::TCC_Basic;
+  }
+
   unsigned getIntrinsicCost(Intrinsic::ID IID, Type *RetTy,
                             ArrayRef<const Value *> Arguments) {
     return BaseT::getIntrinsicCost(IID, RetTy, Arguments);
@@ -169,6 +187,62 @@ public:
     }
 
     return BaseT::getIntrinsicCost(IID, RetTy, ParamTys);
+  }
+
+  unsigned getEstimatedNumberOfCaseClusters(const SwitchInst &SI,
+                                            unsigned &JumpTableSize) {
+    /// Try to find the estimated number of clusters. Note that the number of
+    /// clusters identified in this function could be different from the actural
+    /// numbers found in lowering. This function ignore switches that are
+    /// lowered with a mix of jump table / bit test / BTree. This function was
+    /// initially intended to be used when estimating the cost of switch in
+    /// inline cost heuristic, but it's a generic cost model to be used in other
+    /// places (e.g., in loop unrolling).
+    unsigned N = SI.getNumCases();
+    const TargetLoweringBase *TLI = getTLI();
+    const DataLayout &DL = this->getDataLayout();
+
+    JumpTableSize = 0;
+    bool IsJTAllowed = TLI->areJTsAllowed(SI.getParent()->getParent());
+
+    // Early exit if both a jump table and bit test are not allowed.
+    if (N < 1 || (!IsJTAllowed && DL.getPointerSizeInBits() < N))
+      return N;
+
+    APInt MaxCaseVal = SI.case_begin()->getCaseValue()->getValue();
+    APInt MinCaseVal = MaxCaseVal;
+    for (auto CI : SI.cases()) {
+      const APInt &CaseVal = CI.getCaseValue()->getValue();
+      if (CaseVal.sgt(MaxCaseVal))
+        MaxCaseVal = CaseVal;
+      if (CaseVal.slt(MinCaseVal))
+        MinCaseVal = CaseVal;
+    }
+
+    // Check if suitable for a bit test
+    if (N <= DL.getPointerSizeInBits()) {
+      SmallPtrSet<const BasicBlock *, 4> Dests;
+      for (auto I : SI.cases())
+        Dests.insert(I.getCaseSuccessor());
+
+      if (TLI->isSuitableForBitTests(Dests.size(), N, MinCaseVal, MaxCaseVal,
+                                     DL))
+        return 1;
+    }
+
+    // Check if suitable for a jump table.
+    if (IsJTAllowed) {
+      if (N < 2 || N < TLI->getMinimumJumpTableEntries())
+        return N;
+      uint64_t Range =
+          (MaxCaseVal - MinCaseVal).getLimitedValue(UINT64_MAX - 1) + 1;
+      // Check whether a range of clusters is dense enough for a jump table
+      if (TLI->isSuitableForJumpTable(&SI, N, Range)) {
+        JumpTableSize = Range;
+        return 1;
+      }
+    }
+    return N;
   }
 
   unsigned getJumpBufAlignment() { return getTLI()->getJumpBufAlignment(); }
@@ -215,7 +289,8 @@ public:
 
   unsigned getInliningThresholdMultiplier() { return 1; }
 
-  void getUnrollingPreferences(Loop *L, TTI::UnrollingPreferences &UP) {
+  void getUnrollingPreferences(Loop *L, ScalarEvolution &SE,
+                               TTI::UnrollingPreferences &UP) {
     // This unrolling functionality is target independent, but to provide some
     // motivation for its intended use, for x86:
 
@@ -286,7 +361,7 @@ public:
 
   unsigned getNumberOfRegisters(bool Vector) { return Vector ? 0 : 1; }
 
-  unsigned getRegisterBitWidth(bool Vector) { return 32; }
+  unsigned getRegisterBitWidth(bool Vector) const { return 32; }
 
   /// Estimate the overhead of scalarizing an instruction. Insert and Extract
   /// are set if the result needs to be inserted and/or extracted from vectors.
@@ -334,7 +409,7 @@ public:
 
   unsigned getScalarizationOverhead(Type *VecTy, ArrayRef<const Value *> Args) {
     assert (VecTy->isVectorTy());
-    
+
     unsigned Cost = 0;
 
     Cost += getScalarizationOverhead(VecTy, true, false);
@@ -365,7 +440,7 @@ public:
 
     std::pair<unsigned, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
 
-    bool IsFloat = Ty->getScalarType()->isFloatingPointTy();
+    bool IsFloat = Ty->isFPOrFPVectorTy();
     // Assume that floating point arithmetic operations cost twice as much as
     // integer operations.
     unsigned OpCost = (IsFloat ? 2 : 1);
@@ -798,7 +873,7 @@ public:
     }
     }
   }
-  
+
   /// Get intrinsic cost based on argument types.
   /// If ScalarizationCostPassed is UINT_MAX, the cost of scalarizing the
   /// arguments and the return value will be computed based on types.
@@ -1021,49 +1096,50 @@ public:
 
   unsigned getAddressComputationCost(Type *Ty, ScalarEvolution *,
                                      const SCEV *) {
-    return 0; 
+    return 0;
   }
 
-  unsigned getReductionCost(unsigned Opcode, Type *Ty, bool IsPairwise) {
+  /// Try to calculate arithmetic and shuffle op costs for reduction operations.
+  /// We're assuming that reduction operation are performing the following way:
+  /// 1. Non-pairwise reduction
+  /// %val1 = shufflevector<n x t> %val, <n x t> %undef,
+  /// <n x i32> <i32 n/2, i32 n/2 + 1, ..., i32 n, i32 undef, ..., i32 undef>
+  ///            \----------------v-------------/  \----------v------------/
+  ///                            n/2 elements               n/2 elements
+  /// %red1 = op <n x t> %val, <n x t> val1
+  /// After this operation we have a vector %red1 where only the first n/2
+  /// elements are meaningful, the second n/2 elements are undefined and can be
+  /// dropped. All other operations are actually working with the vector of
+  /// length n/2, not n, though the real vector length is still n.
+  /// %val2 = shufflevector<n x t> %red1, <n x t> %undef,
+  /// <n x i32> <i32 n/4, i32 n/4 + 1, ..., i32 n/2, i32 undef, ..., i32 undef>
+  ///            \----------------v-------------/  \----------v------------/
+  ///                            n/4 elements               3*n/4 elements
+  /// %red2 = op <n x t> %red1, <n x t> val2  - working with the vector of
+  /// length n/2, the resulting vector has length n/4 etc.
+  /// 2. Pairwise reduction:
+  /// Everything is the same except for an additional shuffle operation which
+  /// is used to produce operands for pairwise kind of reductions.
+  /// %val1 = shufflevector<n x t> %val, <n x t> %undef,
+  /// <n x i32> <i32 0, i32 2, ..., i32 n-2, i32 undef, ..., i32 undef>
+  ///            \-------------v----------/  \----------v------------/
+  ///                   n/2 elements               n/2 elements
+  /// %val2 = shufflevector<n x t> %val, <n x t> %undef,
+  /// <n x i32> <i32 1, i32 3, ..., i32 n-1, i32 undef, ..., i32 undef>
+  ///            \-------------v----------/  \----------v------------/
+  ///                   n/2 elements               n/2 elements
+  /// %red1 = op <n x t> %val1, <n x t> val2
+  /// Again, the operation is performed on <n x t> vector, but the resulting
+  /// vector %red1 is <n/2 x t> vector.
+  ///
+  /// The cost model should take into account that the actual length of the
+  /// vector is reduced on each iteration.
+  unsigned getArithmeticReductionCost(unsigned Opcode, Type *Ty,
+                                      bool IsPairwise) {
     assert(Ty->isVectorTy() && "Expect a vector type");
     Type *ScalarTy = Ty->getVectorElementType();
     unsigned NumVecElts = Ty->getVectorNumElements();
     unsigned NumReduxLevels = Log2_32(NumVecElts);
-    // Try to calculate arithmetic and shuffle op costs for reduction operations.
-    // We're assuming that reduction operation are performing the following way:
-    // 1. Non-pairwise reduction
-    // %val1 = shufflevector<n x t> %val, <n x t> %undef,
-    // <n x i32> <i32 n/2, i32 n/2 + 1, ..., i32 n, i32 undef, ..., i32 undef>
-    //            \----------------v-------------/  \----------v------------/
-    //                            n/2 elements               n/2 elements
-    // %red1 = op <n x t> %val, <n x t> val1
-    // After this operation we have a vector %red1 with only maningfull the
-    // first n/2 elements, the second n/2 elements are undefined and can be
-    // dropped. All other operations are actually working with the vector of
-    // length n/2, not n. though the real vector length is still n.
-    // %val2 = shufflevector<n x t> %red1, <n x t> %undef,
-    // <n x i32> <i32 n/4, i32 n/4 + 1, ..., i32 n/2, i32 undef, ..., i32 undef>
-    //            \----------------v-------------/  \----------v------------/
-    //                            n/4 elements               3*n/4 elements
-    // %red2 = op <n x t> %red1, <n x t> val2  - working with the vector of
-    // length n/2, the resulting vector has length n/4 etc.
-    // 2. Pairwise reduction:
-    // Everything is the same except for an additional shuffle operation which
-    // is used to produce operands for pairwise kind of reductions.
-    // %val1 = shufflevector<n x t> %val, <n x t> %undef,
-    // <n x i32> <i32 0, i32 2, ..., i32 n-2, i32 undef, ..., i32 undef>
-    //            \-------------v----------/  \----------v------------/
-    //                   n/2 elements               n/2 elements
-    // %val2 = shufflevector<n x t> %val, <n x t> %undef,
-    // <n x i32> <i32 1, i32 3, ..., i32 n-1, i32 undef, ..., i32 undef>
-    //            \-------------v----------/  \----------v------------/
-    //                   n/2 elements               n/2 elements
-    // %red1 = op <n x t> %val1, <n x t> val2
-    // Again, the operation is performed on <n x t> vector, but the resulting
-    // vector %red1 is <n/2 x t> vector.
-    //
-    // The cost model should take into account that the actual length of the
-    // vector is reduced on each iteration.
     unsigned ArithCost = 0;
     unsigned ShuffleCost = 0;
     auto *ConcreteTTI = static_cast<T *>(this);
@@ -1084,7 +1160,7 @@ public:
     }
     // The minimal length of the vector is limited by the real length of vector
     // operations performed on the current platform. That's why several final
-    // reduction opertions are perfomed on the vectors with the same
+    // reduction operations are performed on the vectors with the same
     // architecture-dependent length.
     ShuffleCost += (NumReduxLevels - LongVectorCount) * (IsPairwise + 1) *
                    ConcreteTTI->getShuffleCost(TTI::SK_ExtractSubvector, Ty,

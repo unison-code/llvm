@@ -99,6 +99,7 @@ def ATOMIC_FENCE : SPseudoInstSI<
   [(atomic_fence (i32 imm:$ordering), (i32 imm:$scope))],
   "ATOMIC_FENCE $ordering, $scope"> {
   let hasSideEffects = 1;
+  let maybeAtomic = 1;
 }
 
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0, Uses = [EXEC] in {
@@ -115,7 +116,40 @@ def V_CNDMASK_B64_PSEUDO : VOP3Common <(outs VReg_64:$vdst),
 // pass to enable folding of inline immediates.
 def V_MOV_B64_PSEUDO : VPseudoInstSI <(outs VReg_64:$vdst),
                                       (ins VSrc_b64:$src0)>;
+
+// Pseudoinstruction for @llvm.amdgcn.wqm. It is turned into a copy after the
+// WQM pass processes it.
+def WQM : PseudoInstSI <(outs unknown:$vdst), (ins unknown:$src0)>;
+
+// Pseudoinstruction for @llvm.amdgcn.wwm. It is turned into a copy post-RA, so
+// that the @earlyclobber is respected. The @earlyclobber is to make sure that
+// the instruction that defines $src0 (which is run in WWM) doesn't
+// accidentally clobber inactive channels of $vdst.
+let Constraints = "@earlyclobber $vdst" in {
+def WWM : PseudoInstSI <(outs unknown:$vdst), (ins unknown:$src0)>;
+}
+
 } // End let hasSideEffects = 0, mayLoad = 0, mayStore = 0, Uses = [EXEC]
+
+def EXIT_WWM : SPseudoInstSI <(outs SReg_64:$sdst), (ins SReg_64:$src0)> {
+  let hasSideEffects = 0;
+  let mayLoad = 0;
+  let mayStore = 0;
+}
+
+// Invert the exec mask and overwrite the inactive lanes of dst with inactive,
+// restoring it after we're done.
+def V_SET_INACTIVE_B32 : VPseudoInstSI <(outs VGPR_32:$vdst),
+  (ins VGPR_32: $src, VSrc_b32:$inactive),
+  [(set i32:$vdst, (int_amdgcn_set_inactive i32:$src, i32:$inactive))]> {
+  let Constraints = "$src = $vdst";
+}
+
+def V_SET_INACTIVE_B64 : VPseudoInstSI <(outs VReg_64:$vdst),
+  (ins VReg_64: $src, VSrc_b64:$inactive),
+  [(set i64:$vdst, (int_amdgcn_set_inactive i64:$src, i64:$inactive))]> {
+  let Constraints = "$src = $vdst";
+}
 
 let usesCustomInserter = 1, SALU = 1 in {
 def GET_GROUPSTATICSIZE : PseudoInstSI <(outs SReg_32:$sdst), (ins),
@@ -173,6 +207,13 @@ def SI_MASK_BRANCH : VPseudoInstSI <
 }
 
 let isTerminator = 1 in {
+
+ def SI_NON_UNIFORM_BRCOND_PSEUDO : CFPseudoInstSI <
+  (outs),
+  (ins SReg_64:$vcc, brtarget:$target),
+  [(brcond i1:$vcc, bb:$target)]> {
+    let Size = 12;
+}
 
 def SI_IF: CFPseudoInstSI <
   (outs SReg_64:$dst), (ins SReg_64:$vcc, brtarget:$target),
@@ -286,6 +327,19 @@ def SI_INIT_M0 : SPseudoInstSI <(outs), (ins SSrc_b32:$src)> {
   let isReMaterializable = 1;
 }
 
+def SI_INIT_EXEC : SPseudoInstSI <
+  (outs), (ins i64imm:$src), []> {
+  let Defs = [EXEC];
+  let usesCustomInserter = 1;
+  let isAsCheapAsAMove = 1;
+}
+
+def SI_INIT_EXEC_FROM_INPUT : SPseudoInstSI <
+  (outs), (ins SSrc_b32:$input, i32imm:$shift), []> {
+  let Defs = [EXEC];
+  let usesCustomInserter = 1;
+}
+
 // Return for returning shaders to a shader variant epilog.
 def SI_RETURN_TO_EPILOG : SPseudoInstSI <
   (outs), (ins variable_ops), [(AMDGPUreturn_to_epilog)]> {
@@ -294,6 +348,57 @@ def SI_RETURN_TO_EPILOG : SPseudoInstSI <
   let isReturn = 1;
   let hasNoSchedulingInfo = 1;
   let DisableWQM = 1;
+}
+
+// Return for returning function calls.
+def SI_RETURN : SPseudoInstSI <
+  (outs), (ins), [],
+  "; return"> {
+  let isTerminator = 1;
+  let isBarrier = 1;
+  let isReturn = 1;
+  let SchedRW = [WriteBranch];
+}
+
+// Return for returning function calls without output register.
+//
+// This version is only needed so we can fill in the output regiter in
+// the custom inserter.
+def SI_CALL_ISEL : SPseudoInstSI <
+  (outs), (ins SSrc_b64:$src0), [(AMDGPUcall i64:$src0)]> {
+  let Size = 4;
+  let isCall = 1;
+  let SchedRW = [WriteBranch];
+  let usesCustomInserter = 1;
+}
+
+// Wrapper around s_swappc_b64 with extra $callee parameter to track
+// the called function after regalloc.
+def SI_CALL : SPseudoInstSI <
+  (outs SReg_64:$dst), (ins SSrc_b64:$src0, unknown:$callee)> {
+  let Size = 4;
+  let isCall = 1;
+  let SchedRW = [WriteBranch];
+}
+
+
+def ADJCALLSTACKUP : SPseudoInstSI<
+  (outs), (ins i32imm:$amt0, i32imm:$amt1),
+  [(callseq_start timm:$amt0, timm:$amt1)],
+  "; adjcallstackup $amt0 $amt1"> {
+  let Size = 8; // Worst case. (s_add_u32 + constant)
+  let FixedSize = 1;
+  let hasSideEffects = 1;
+  let usesCustomInserter = 1;
+}
+
+def ADJCALLSTACKDOWN : SPseudoInstSI<
+  (outs), (ins i32imm:$amt1, i32imm:$amt2),
+  [(callseq_end timm:$amt1, timm:$amt2)],
+  "; adjcallstackdown $amt1"> {
+  let Size = 8; // Worst case. (s_add_u32 + constant)
+  let hasSideEffects = 1;
+  let usesCustomInserter = 1;
 }
 
 let Defs = [M0, EXEC],
@@ -399,6 +504,16 @@ def SI_PC_ADD_REL_OFFSET : SPseudoInstSI <
 } // End SubtargetPredicate = isGCN
 
 let Predicates = [isGCN] in {
+def : Pat <
+  (AMDGPUinit_exec i64:$src),
+  (SI_INIT_EXEC (as_i64imm $src))
+>;
+
+def : Pat <
+  (AMDGPUinit_exec_from_input i32:$input, i32:$shift),
+  (SI_INIT_EXEC_FROM_INPUT (i32 $input), (as_i32imm $shift))
+>;
+
 def : Pat<
   (AMDGPUtrap timm:$trapid),
   (S_TRAP $trapid)
@@ -472,8 +587,8 @@ def : Pat <
 
 // fp_to_fp16 patterns
 def : Pat <
-  (i32 (AMDGPUfp_to_f16 (f32 (VOP3Mods0 f32:$src0, i32:$src0_modifiers, i1:$clamp, i32:$omod)))),
-  (V_CVT_F16_F32_e64 $src0_modifiers, f32:$src0, $clamp, $omod)
+  (i32 (AMDGPUfp_to_f16 (f32 (VOP3Mods f32:$src0, i32:$src0_modifiers)))),
+  (V_CVT_F16_F32_e64 $src0_modifiers, f32:$src0, DSTCLAMP.NONE, DSTOMOD.NONE)
 >;
 
 def : Pat <
@@ -502,11 +617,11 @@ def : Pat <
 
 multiclass FMADPat <ValueType vt, Instruction inst> {
   def : Pat <
-    (vt (fmad (VOP3NoMods0 vt:$src0, i32:$src0_modifiers, i1:$clamp, i32:$omod),
-              (VOP3NoMods  vt:$src1, i32:$src1_modifiers),
-              (VOP3NoMods  vt:$src2, i32:$src2_modifiers))),
-    (inst $src0_modifiers, $src0, $src1_modifiers, $src1,
-          $src2_modifiers, $src2, $clamp, $omod)
+    (vt (fmad (VOP3NoMods vt:$src0),
+              (VOP3NoMods vt:$src1),
+              (VOP3NoMods vt:$src2))),
+    (inst SRCMODS.NONE, $src0, SRCMODS.NONE, $src1,
+          SRCMODS.NONE, $src2, DSTCLAMP.NONE, DSTOMOD.NONE)
   >;
 }
 
@@ -676,10 +791,9 @@ def : BitConvert <v16f32, v16i32, VReg_512>;
 // If denormals are not enabled, it only impacts the compare of the
 // inputs. The output result is not flushed.
 class ClampPat<Instruction inst, ValueType vt> : Pat <
-  (vt (AMDGPUclamp
-        (VOP3Mods0Clamp vt:$src0, i32:$src0_modifiers, i32:$omod))),
+  (vt (AMDGPUclamp (VOP3Mods vt:$src0, i32:$src0_modifiers))),
   (inst i32:$src0_modifiers, vt:$src0,
-        i32:$src0_modifiers, vt:$src0, DSTCLAMP.ENABLE, $omod)
+        i32:$src0_modifiers, vt:$src0, DSTCLAMP.ENABLE, DSTOMOD.NONE)
 >;
 
 def : ClampPat<V_MAX_F32_e64, f32>;
@@ -900,6 +1014,14 @@ def : UMad24Pat<V_MAD_U32_U24>;
 defm : BFIPatterns <V_BFI_B32, S_MOV_B32, SReg_64>;
 def : ROTRPattern <V_ALIGNBIT_B32>;
 
+def : Pat<(i32 (trunc (srl i64:$src0, (and i32:$src1, (i32 31))))),
+          (V_ALIGNBIT_B32 (i32 (EXTRACT_SUBREG (i64 $src0), sub1)),
+                          (i32 (EXTRACT_SUBREG (i64 $src0), sub0)), $src1)>;
+
+def : Pat<(i32 (trunc (srl i64:$src0, (i32 ShiftAmt32Imm:$src1)))),
+          (V_ALIGNBIT_B32 (i32 (EXTRACT_SUBREG (i64 $src0), sub1)),
+                          (i32 (EXTRACT_SUBREG (i64 $src0), sub0)), $src1)>;
+
 /********** ====================== **********/
 /**********   Indirect addressing  **********/
 /********** ====================== **********/
@@ -1023,7 +1145,7 @@ def : Pat <
 
 class FPToI1Pat<Instruction Inst, int KOne, ValueType kone_type, ValueType vt, SDPatternOperator fp_to_int> : Pat <
   (i1 (fp_to_int (vt (VOP3Mods vt:$src0, i32:$src0_modifiers)))),
-  (i1 (Inst 0, (kone_type KOne), $src0_modifiers, $src0, DSTCLAMP.NONE, DSTOMOD.NONE))
+  (i1 (Inst 0, (kone_type KOne), $src0_modifiers, $src0, DSTCLAMP.NONE))
 >;
 
 def : FPToI1Pat<V_CMP_EQ_F32_e64, CONST.FP32_ONE, i32, f32, fp_to_uint>;
@@ -1251,20 +1373,75 @@ class FPMed3Pat<ValueType vt,
   (med3Inst $src0_mods, $src0, $src1_mods, $src1, $src2_mods, $src2, DSTCLAMP.NONE, DSTOMOD.NONE)
 >;
 
+class FP16Med3Pat<ValueType vt,
+                Instruction med3Inst> : Pat<
+  (fmaxnum (fminnum_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+                           (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
+           (fminnum_oneuse (fmaxnum_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+                                           (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
+                           (vt (VOP3Mods_nnan vt:$src2, i32:$src2_mods)))),
+  (med3Inst $src0_mods, $src0, $src1_mods, $src1, $src2_mods, $src2, DSTCLAMP.NONE)
+>;
+
+class Int16Med3Pat<Instruction med3Inst,
+                   SDPatternOperator max,
+                   SDPatternOperator max_oneuse,
+                   SDPatternOperator min_oneuse,
+                   ValueType vt = i32> : Pat<
+  (max (min_oneuse vt:$src0, vt:$src1),
+       (min_oneuse (max_oneuse vt:$src0, vt:$src1), vt:$src2)),
+  (med3Inst SRCMODS.NONE, $src0, SRCMODS.NONE, $src1, SRCMODS.NONE, $src2, DSTCLAMP.NONE)
+>;
+
 def : FPMed3Pat<f32, V_MED3_F32>;
 
 let Predicates = [isGFX9] in {
-def : FPMed3Pat<f16, V_MED3_F16>;
-def : IntMed3Pat<V_MED3_I16, smax, smax_oneuse, smin_oneuse, i16>;
-def : IntMed3Pat<V_MED3_U16, umax, umax_oneuse, umin_oneuse, i16>;
+def : FP16Med3Pat<f16, V_MED3_F16>;
+def : Int16Med3Pat<V_MED3_I16, smax, smax_oneuse, smin_oneuse, i16>;
+def : Int16Med3Pat<V_MED3_U16, umax, umax_oneuse, umin_oneuse, i16>;
 } // End Predicates = [isGFX9]
 
 //============================================================================//
 // Assembler aliases
 //============================================================================//
 
+multiclass NoCarryAlias<string Inst,
+  Instruction Inst32NC, Instruction Inst64NC,
+  Instruction Inst32CO, Instruction Inst64CO> {
+  def : InstAlias<Inst#" $vdst, $src0, $src1",
+    (Inst32NC VGPR_32:$vdst, VSrc_b32:$src0, VGPR_32:$src1), 1000>,
+    Requires<[HasAddNoCarryInsts]>;
+
+  def : InstAlias<Inst#" $vdst, $src0, $src1",
+    (Inst64NC VGPR_32:$vdst, VCSrc_b32:$src0, VCSrc_b32:$src1), -10>,
+    Requires<[HasAddNoCarryInsts]>;
+
+  def : InstAlias<Inst#" $vdst, vcc, $src0, $src1",
+    (Inst32CO VGPR_32:$vdst, VSrc_b32:$src0, VGPR_32:$src1), 1000>,
+    Requires<[HasAddNoCarryInsts]>;
+
+  def : InstAlias<Inst#" $vdst, $sdst, $src0, $src1",
+    (Inst64CO VGPR_32:$vdst, SReg_64:$sdst, VSrc_b32:$src0, VGPR_32:$src1), -10>,
+    Requires<[HasAddNoCarryInsts]>;
+}
+
+// gfx9 made a mess of add instruction names. The existing add
+// instructions add _co added to the names, and their old names were
+// repurposed to a version without carry out.
+let Predicates = [HasAddNoCarryInsts] in {
+defm : NoCarryAlias<"v_add_u32", V_ADD_U32_e32_vi, V_ADD_U32_e64_vi,
+                                 V_ADD_I32_e32_vi, V_ADD_I32_e64_vi>;
+defm : NoCarryAlias<"v_sub_u32", V_SUB_U32_e32_vi, V_SUB_U32_e64_vi,
+                                 V_SUB_I32_e32_vi, V_SUB_I32_e64_vi>;
+defm : NoCarryAlias<"v_subrev_u32",
+  V_SUBREV_U32_e32_vi, V_SUBREV_U32_e64_vi,
+  V_SUBREV_I32_e32_vi, V_SUBREV_I32_e64_vi>;
+}
+
+let Predicates = [NotHasAddNoCarryInsts] in {
 def : MnemonicAlias<"v_add_u32", "v_add_i32">;
 def : MnemonicAlias<"v_sub_u32", "v_sub_i32">;
 def : MnemonicAlias<"v_subrev_u32", "v_subrev_i32">;
+}
 
 } // End isGCN predicate

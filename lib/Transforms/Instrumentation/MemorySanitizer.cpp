@@ -1576,13 +1576,16 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
   Value *CreateShadowCast(IRBuilder<> &IRB, Value *V, Type *dstTy,
                           bool Signed = false) {
     Type *srcTy = V->getType();
+    size_t srcSizeInBits = VectorOrPrimitiveTypeSizeInBits(srcTy);
+    size_t dstSizeInBits = VectorOrPrimitiveTypeSizeInBits(dstTy);
+    if (srcSizeInBits > 1 && dstSizeInBits == 1)
+      return IRB.CreateICmpNE(V, getCleanShadow(V));
+
     if (dstTy->isIntegerTy() && srcTy->isIntegerTy())
       return IRB.CreateIntCast(V, dstTy, Signed);
     if (dstTy->isVectorTy() && srcTy->isVectorTy() &&
         dstTy->getVectorNumElements() == srcTy->getVectorNumElements())
       return IRB.CreateIntCast(V, dstTy, Signed);
-    size_t srcSizeInBits = VectorOrPrimitiveTypeSizeInBits(srcTy);
-    size_t dstSizeInBits = VectorOrPrimitiveTypeSizeInBits(dstTy);
     Value *V1 = IRB.CreateBitCast(V, Type::getIntNTy(*MS.C, srcSizeInBits));
     Value *V2 =
       IRB.CreateIntCast(V1, Type::getIntNTy(*MS.C, dstSizeInBits), Signed);
@@ -2084,6 +2087,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     switch (I.getNumArgOperands()) {
     case 3:
       assert(isa<ConstantInt>(I.getArgOperand(2)) && "Invalid rounding mode");
+      LLVM_FALLTHROUGH;
     case 2:
       CopyOp = I.getArgOperand(0);
       ConvertOp = I.getArgOperand(1);
@@ -2607,10 +2611,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         AttrBuilder B;
         B.addAttribute(Attribute::ReadOnly)
           .addAttribute(Attribute::ReadNone);
-        Func->removeAttributes(AttributeList::FunctionIndex,
-                               AttributeList::get(Func->getContext(),
-                                                  AttributeList::FunctionIndex,
-                                                  B));
+        Func->removeAttributes(AttributeList::FunctionIndex, B);
       }
 
       maybeMarkSanitizerLibraryCallNoBuiltin(Call, TLI);
@@ -2643,7 +2644,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
                "ByVal argument is not a pointer!");
         Size = DL.getTypeAllocSize(A->getType()->getPointerElementType());
         if (ArgOffset + Size > kParamTLSSize) break;
-        unsigned ParamAlignment = CS.getParamAlignment(i + 1);
+        unsigned ParamAlignment = CS.getParamAlignment(i);
         unsigned Alignment = std::min(ParamAlignment, kShadowTLSAlignment);
         Store = IRB.CreateMemCpy(ArgShadowBase,
                                  getShadowPtr(A, Type::getInt8Ty(*MS.C), IRB),
@@ -2917,8 +2918,11 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     if (ClDumpStrictInstructions)
       dumpInst(I);
     DEBUG(dbgs() << "DEFAULT: " << I << "\n");
-    for (size_t i = 0, n = I.getNumOperands(); i < n; i++)
-      insertShadowCheck(I.getOperand(i), &I);
+    for (size_t i = 0, n = I.getNumOperands(); i < n; i++) {
+      Value *Operand = I.getOperand(i);
+      if (Operand->getType()->isSized())
+        insertShadowCheck(Operand, &I);
+    }
     setShadow(&I, getCleanShadow(&I));
     setOrigin(&I, getCleanOrigin());
   }
@@ -3035,7 +3039,7 @@ struct VarArgAMD64Helper : public VarArgHelper {
   }
 
   void visitVAStartInst(VAStartInst &I) override {
-    if (F.getCallingConv() == CallingConv::X86_64_Win64)
+    if (F.getCallingConv() == CallingConv::Win64)
       return;
     IRBuilder<> IRB(&I);
     VAStartInstrumentationList.push_back(&I);
@@ -3049,7 +3053,7 @@ struct VarArgAMD64Helper : public VarArgHelper {
   }
 
   void visitVACopyInst(VACopyInst &I) override {
-    if (F.getCallingConv() == CallingConv::X86_64_Win64)
+    if (F.getCallingConv() == CallingConv::Win64)
       return;
     IRBuilder<> IRB(&I);
     Value *VAListTag = I.getArgOperand(0);
@@ -3502,7 +3506,7 @@ struct VarArgPowerPC64Helper : public VarArgHelper {
         assert(A->getType()->isPointerTy());
         Type *RealTy = A->getType()->getPointerElementType();
         uint64_t ArgSize = DL.getTypeAllocSize(RealTy);
-        uint64_t ArgAlign = CS.getParamAlignment(ArgNo + 1);
+        uint64_t ArgAlign = CS.getParamAlignment(ArgNo);
         if (ArgAlign < 8)
           ArgAlign = 8;
         VAArgOffset = alignTo(VAArgOffset, ArgAlign);
@@ -3659,9 +3663,7 @@ bool MemorySanitizer::runOnFunction(Function &F) {
   AttrBuilder B;
   B.addAttribute(Attribute::ReadOnly)
     .addAttribute(Attribute::ReadNone);
-  F.removeAttributes(
-      AttributeList::FunctionIndex,
-      AttributeList::get(F.getContext(), AttributeList::FunctionIndex, B));
+  F.removeAttributes(AttributeList::FunctionIndex, B);
 
   return Visitor.runOnFunction();
 }

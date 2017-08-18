@@ -5,11 +5,12 @@
 // The fuzzer must find a string based on dictionary words:
 //   "Elvis"
 //   "Presley"
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <cstddef>
 #include <cstring>
 #include <iostream>
+#include <ostream>
 
 static volatile int Zero = 0;
 
@@ -21,7 +22,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     if (Expected[i] + Zero == Data[i])
       Match++;
   if (Match == strlen(Expected)) {
-    std::cout << "BINGO; Found the target, exiting\n";
+    std::cout << "BINGO; Found the target, exiting\n" << std::flush;
     exit(1);
   }
   return 0;

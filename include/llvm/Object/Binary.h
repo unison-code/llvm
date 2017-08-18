@@ -42,7 +42,6 @@ protected:
     ID_MachOUniversalBinary,
     ID_COFFImportFile,
     ID_IR,                 // LLVM IR
-    ID_ModuleSummaryIndex, // Module summary index
 
     // Object and children.
     ID_StartObjects,
@@ -57,6 +56,8 @@ protected:
     ID_MachO32B, // MachO 32-bit, big endian
     ID_MachO64L, // MachO 64-bit, little endian
     ID_MachO64B, // MachO 64-bit, big endian
+
+    ID_WinRes, // Windows resource (.res) file.
 
     ID_Wasm,
 
@@ -94,9 +95,7 @@ public:
     return TypeID > ID_StartObjects && TypeID < ID_EndObjects;
   }
 
-  bool isSymbolic() const {
-    return isIR() || isObject();
-  }
+  bool isSymbolic() const { return isIR() || isObject() || isCOFFImportFile(); }
 
   bool isArchive() const {
     return TypeID == ID_Archive;
@@ -128,12 +127,12 @@ public:
     return TypeID == ID_IR;
   }
 
-  bool isModuleSummaryIndex() const { return TypeID == ID_ModuleSummaryIndex; }
-
   bool isLittleEndian() const {
     return !(TypeID == ID_ELF32B || TypeID == ID_ELF64B ||
              TypeID == ID_MachO32B || TypeID == ID_MachO64B);
   }
+
+  bool isWinRes() const { return TypeID == ID_WinRes; }
 
   Triple::ObjectFormatType getTripleObjectFormat() const {
     if (isCOFF())
