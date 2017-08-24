@@ -143,10 +143,13 @@ namespace llvm {
       std::vector<std::string> types = flat(def->getDef());
       for (int j = 0, k = types.size(); j < k; j++) {
         std::string type = types[j];
-        std::string argname(dag->getArgName(i)->getValue());
-        std::string name =
-          types.size() == 1 ? argname : (argname + std::to_string(j+1));
-        if (name == "") name = "unnamed";
+        std::string name;
+        if (type == "variable_ops") {
+          name = "variable";
+        } else {
+          std::string argname(dag->getArgName(i)->getValue());
+          name = types.size() == 1 ? argname : (argname + std::to_string(j+1));
+        }
         string_pair pr(type, escape(name));
         ret->push_back(pr);
       }
