@@ -133,6 +133,11 @@ UnisonDriver::UnisonDriver() : MachineFunctionPass(ID), Base("") {}
 
 extern cl::opt<std::string> UnisonSingleFunction;
 
+static cl::opt<std::string> UnisonOnlyFunctions("unison-only-functions",
+    cl::Optional,
+    cl::desc("comma-separated list of functions for which Unison be run only"),
+    cl::init(""));
+
 UnisonDriver::UnisonDriver(StringRef Pre) :
   MachineFunctionPass(ID) {
   Base = Pre.substr(0, Pre.size() - std::string(".mir").size());
@@ -166,8 +171,23 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   // Using -unison-single-function on the command line overrides the other ways
   // of activating Unison.
   const StringRef &UnisonSingleFunctionStr = UnisonSingleFunction;
-  if (!UnisonSingleFunctionStr.equals(StringRef("")) &&
+  if (!UnisonSingleFunctionStr.empty() &&
       !MF.getName().equals(UnisonSingleFunction)) {
+    cleanPaths();
+    return false;
+  }
+
+  const StringRef &UnisonOnlyFunctionsStr = UnisonOnlyFunctions;
+  SmallVector<StringRef, 4> Functions;
+  StringRef(UnisonOnlyFunctionsStr).split(Functions, ',');
+  bool run = false;
+  for (auto f : Functions) {
+    if (MF.getName().equals(f)) {
+      run = true;
+      break;
+    }
+  }
+  if (!UnisonOnlyFunctionsStr.empty() && !run) {
     cleanPaths();
     return false;
   }
