@@ -84,6 +84,11 @@ static cl::opt<unsigned int> UnisonMaxInstrs("unison-max-instrs",
     cl::desc("Maximum number of instructions in a function for which Unison is run (0 for unlimited)"),
     cl::init(0));
 
+static cl::opt<std::string> UnisonSolver("unison-solver",
+    cl::Optional,
+    cl::desc("Unison solver (e.g. 'gecode-solver' or 'portfolio-solver'"),
+    cl::init("gecode-solver"));
+
 static cl::opt<std::string> UnisonImportFlags("unison-import-flags",
     cl::Optional,
     cl::desc("'uni import' flags"),
@@ -212,7 +217,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   // Load Unison paths only if we are really going to use them
   UnisonPath.load("uni");
   PresolverPath.load("gecode-presolver");
-  SolverPath.load("gecode-solver");
+  SolverPath.load(std::string(UnisonSolver).c_str());
 
   std::string TargetName;
   if (TM->getTargetTriple().getArch() == Triple::hexagon &&
@@ -309,7 +314,7 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   std::string ExtJson = makeTempPath("ext.json");
 
   std::vector<std::string> PresolverArgv =
-    { "gecode-presolver", "-o", ExtJson };
+    { "gecode-presolver", "-o", ExtJson, "--verbose" };
   insertFlags(PresolverArgv, UnisonPresolverFlags);
   PresolverArgv.push_back(Json);
 
@@ -321,12 +326,12 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
   std::string OutJson = makeTempPath("out.json");
 
   std::vector<std::string> SolverArgv =
-    { "gecode-solver", "-o", OutJson, "--verbose" };
+    { UnisonSolver, "-o", OutJson, "--verbose" };
   insertFlags(SolverArgv, UnisonSolverFlags);
   SolverArgv.push_back(ExtJson);
 
   Command solver_cmd(SolverPath, SolverArgv);
-  ensure(solver_cmd.run(), "'gecode-solver' failed.");
+  ensure(solver_cmd.run(), "solver failed.");
 
   // 9. Export: *.alt.uni, *.out.json, *.llvm.mir --> *.unison.mir
 
