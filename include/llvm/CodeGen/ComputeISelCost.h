@@ -20,6 +20,7 @@
 
 using namespace llvm;
 
+bool isOperandUsedByPhi(MachineOperand* op);
 int getInstrCost(TargetSchedModel* model, MachineInstr* MI);
 
 #endif
