@@ -29,6 +29,7 @@ STATISTIC(TotalFuncs , "Number of non-external functions");
 STATISTIC(TotalMemInst, "Number of memory instructions");
 STATISTIC(TotalArrayInsts, "Number of instructions that operate on array data types");
 STATISTIC(TotalVectorInsts, "Number of instructions that operate on vector data types");
+STATISTIC(TotalFloatInsts, "Number of instructions that operate on float data types");
 
 #define HANDLE_INST(N, OPCODE, CLASS) \
   STATISTIC(Num ## OPCODE ## Inst, "Number of " #OPCODE " insts");
@@ -51,6 +52,7 @@ namespace {
         Type* t = (*I)->getType(); \
         if (isArrayTy(t)) TotalArrayInsts++; \
         if (isVectorTy(t)) TotalVectorInsts++; \
+        if (isFloatTy(t)) TotalFloatInsts++; \
       } \
     }
 
@@ -87,6 +89,10 @@ namespace {
         return isVectorTy(pt->getElementType());
       }
       else return t->isVectorTy();
+    }
+
+    bool isFloatTy(Type* t) {
+      return t->isFloatTy();
     }
   };
 }
