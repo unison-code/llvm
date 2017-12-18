@@ -52,7 +52,7 @@ namespace {
         Type* t = (*I)->getType(); \
         if (isArrayTy(t)) TotalArrayInsts++; \
         if (isVectorTy(t)) TotalVectorInsts++; \
-        if (isFloatTy(t)) TotalFloatInsts++; \
+        if (t->isFloatingPointTy()) TotalFloatInsts++;  \
       } \
     }
 
@@ -89,10 +89,6 @@ namespace {
         return isVectorTy(pt->getElementType());
       }
       else return t->isVectorTy();
-    }
-
-    bool isFloatTy(Type* t) {
-      return t->isFloatTy();
     }
   };
 }
