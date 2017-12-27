@@ -20,6 +20,7 @@
 #include "llvm/Analysis/TypeBasedAliasAnalysis.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
+#include "llvm/CodeGen/MachineCodeStats.h"
 #include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Verifier.h"
@@ -93,6 +94,8 @@ static cl::opt<bool> VerifyMachineCode("verify-machineinstrs", cl::Hidden,
     cl::desc("Verify generated machine code"),
     cl::init(false),
     cl::ZeroOrMore);
+static cl::opt<bool> MachineStats("machine-stats", cl::Hidden,
+    cl::desc("Compute additional stats for machine IR"));
 
 static cl::opt<std::string>
 PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
@@ -553,6 +556,11 @@ void TargetPassConfig::addMachinePasses() {
   // Run pre-ra passes.
   addPreRegAlloc();
 
+  if (MachineStats) {
+    // Print additional machine IR stats before register allocation.
+    addPass(createMachineCodeStatsPass(MachineCodeStats::PreRA));
+  }
+
   // If a Unison input file has been created, populate it with the MIR
   // representation of the code at this point. It will be used later as input to
   // the Unison driver.
@@ -571,6 +579,11 @@ void TargetPassConfig::addMachinePasses() {
     addOptimizedRegAlloc(createRegAllocPass(true));
   else
     addFastRegAlloc(createRegAllocPass(false));
+
+  if (MachineStats) {
+    // Print additional machine IR stats after register allocation.
+    addPass(createMachineCodeStatsPass(MachineCodeStats::PostRA));
+  }
 
   // Run post-ra passes.
   addPostRegAlloc();
@@ -616,6 +629,10 @@ void TargetPassConfig::addMachinePasses() {
     addBlockPlacement();
 
   addPreEmitPass();
+
+  if (MachineStats) {
+    addPass(&WeightedIPBID);
+  }
 
   addPass(&FuncletLayoutID, false);
 

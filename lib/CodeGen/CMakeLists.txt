@@ -58,6 +58,7 @@ add_llvm_library(LLVMCodeGen
   MachineBlockFrequencyInfo.cpp
   MachineBlockPlacement.cpp
   MachineBranchProbabilityInfo.cpp
+  MachineCodeStats.cpp
   MachineCSE.cpp
   MachineCombiner.cpp
   MachineCopyPropagation.cpp
@@ -133,6 +134,7 @@ add_llvm_library(LLVMCodeGen
   TwoAddressInstructionPass.cpp
   UnreachableBlockElim.cpp
   VirtRegMap.cpp
+  WeightedIPB.cpp
   WinEHPrepare.cpp
 
   ADDITIONAL_HEADER_DIRS
