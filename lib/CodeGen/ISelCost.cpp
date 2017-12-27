@@ -66,8 +66,15 @@ bool ISelCost::runOnMachineFunction(MachineFunction &MF) {
   for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
     MachineBasicBlock *MBB = &(*I);
     assert(MBB);
-    const MDNode *fn =
-        MBB->getBasicBlock()->getTerminator()->getMetadata("exec_freq");
+    const MDNode *fn = NULL;
+    const BasicBlock *BB = MBB->getBasicBlock();
+    while (BB) {
+        fn = BB->getTerminator()->getMetadata("exec_freq");
+        // If no metadata is found for this block, try the metadata of single
+        // predecessor block
+        if (fn) break;
+        else BB = BB->getSinglePredecessor();
+    }
     assert(fn);
     const ConstantAsMetadata *c_md_f =
       (const ConstantAsMetadata *)(fn->getOperand(0).get());
