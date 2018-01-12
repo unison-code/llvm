@@ -120,6 +120,11 @@ int getInstrCost(TargetSchedModel *model, MachineInstr *MI) {
       }
   }
 
+  // Add cost to implicit defs
+  if (instr_name.equals("IMPLICIT_DEF")) {
+      return 1;
+  }
+
   isLastInstrCopySP = false;
 
   return model->computeInstrLatency(MI);
