@@ -61,7 +61,7 @@ int getInstrCost(TargetSchedModel *model, MachineInstr *MI) {
   if (instr_name.equals("COPY")) {
     MachineOperand &def_op = MI->getOperand(0);
     if (isOperandUsedByPhi(&def_op)) {
-      return 1;
+      return 0;
     }
 
     MachineOperand &use_op = MI->getOperand(1);
