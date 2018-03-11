@@ -273,6 +273,8 @@ namespace llvm {
 
   bool isRegister(Record *rec) {
     if (rec == nullptr) return false;
+    if (rec->isSubClassOf("PointerLikeRegClass"))
+      return true;
     std::vector<Record*> super = rec->getSuperClasses();
     for (int i = 0, k = super.size(); i < k; i++) {
       std::string name = super[i]->getName();
