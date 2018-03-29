@@ -6,14 +6,14 @@ repository](https://github.com/unison-code/unison).
 
 ## Building, Testing, and Installing
 
-Just checkout one of the branches with a `-unison` suffix (corresponding to
-upstream LLVM's master and release branches) and follow the instructions
+Just checkout `release_38-unison`(corresponding to
+upstream LLVM's master and release branch) and follow the instructions
 provided at LLVM's [website](http://llvm.org/docs/GettingStarted.html) as usual.
 
 ## Running
 
 Just run `llc` on the LLVM IR module to be compiled to assembly code with the
-flag `-unison`. For example, to compile the LLVM IR module `foo.ll` to Hexagon
+flag `-unison`. For example, to compile the LLVM IR module `foo.ll` (foo.ll file is not included in the package, just an illustrative example) to Hexagon
 V4 assembly code with Unison, just run:
 
 ```
