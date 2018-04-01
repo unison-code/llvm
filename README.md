@@ -48,7 +48,4 @@ The Unison Driver is licensed under the BSD3 license, see the
 [LICENSE.md](LICENSE.md) file for details.
 
 ## Further Reading
-
-
-
 Check [the Unison website](https://unison-code.github.io/).
