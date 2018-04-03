@@ -6,8 +6,7 @@ repository](https://github.com/unison-code/unison).
 
 ## Building, Testing, and Installing
 
-Just checkout `release_38-unison`(corresponding to
-upstream LLVM's master and release branch) and follow the instructions
+Just checkout the branch `release_38-unison` and follow the instructions
 provided at LLVM's [website](http://llvm.org/docs/GettingStarted.html) as usual.
 
 ## Running
