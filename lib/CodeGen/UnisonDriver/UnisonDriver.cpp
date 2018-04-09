@@ -228,6 +228,8 @@ bool UnisonDriver::runOnMachineFunction(MachineFunction &MF) {
     TargetName = "ARM";
   } else if (TM->getTargetTriple().getArch() == Triple::x86_64) {
     TargetName = "X86";
+  } else if (TM->getTargetTriple().getArch() == Triple::mips) {
+    TargetName = "Mips";
   } else {
     report_fatal_error("Target unavailable in Unison", false);
   }
