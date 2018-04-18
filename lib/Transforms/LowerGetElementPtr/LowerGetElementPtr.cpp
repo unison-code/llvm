@@ -28,7 +28,6 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
-//#include "llvm/Transforms/NaCl.h"
 
 using namespace llvm;
 
@@ -136,9 +135,15 @@ bool LowerGetElementPtr::runOnBasicBlock(BasicBlock &BB) {
 
   for (BasicBlock::iterator I = BB.begin(), E = BB.end(); I != E; ) {
     Instruction *Inst = &*I++;
+
     if (GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(Inst)) {
-      Modified = true;
-      LowerGEP(GEP, &DL, PtrType);
+      if (CastInst::castIsValid(Instruction::CastOps::PtrToInt,
+                                GEP->getPointerOperand(),
+                                PtrType))
+      {
+        Modified = true;
+        LowerGEP(GEP, &DL, PtrType);
+      }
     }
   }
   return Modified;
