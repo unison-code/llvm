@@ -928,8 +928,12 @@ void MIPrinter::print(const MachineMemOperand &Op) {
       OS << "constant-pool";
       break;
     case PseudoSourceValue::FixedStack:
-      printStackObjectReference(
+      if (Info.UnisonStyle) {
+        OS << "stack";
+      } else {
+        printStackObjectReference(
           cast<FixedStackPseudoSourceValue>(PVal)->getFrameIndex());
+      }
       break;
     case PseudoSourceValue::GlobalValueCallEntry:
       OS << "call-entry ";
