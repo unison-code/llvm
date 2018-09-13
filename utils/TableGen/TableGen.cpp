@@ -19,6 +19,7 @@
 #include "llvm/TableGen/Main.h"
 #include "llvm/TableGen/Record.h"
 #include "llvm/TableGen/SetTheory.h"
+#include "llvm/TableGen/Unison.h"
 
 using namespace llvm;
 
@@ -54,6 +55,7 @@ enum ActionType {
   GenX86FoldTables,
   GenRegisterBank,
   GenWebAssemblyStackifier,
+  GenUnison
 };
 
 namespace {
@@ -120,7 +122,9 @@ namespace {
                     clEnumValN(GenRegisterBank, "gen-register-bank",
                                "Generate registers bank descriptions"),
                     clEnumValN(GenWebAssemblyStackifier, "gen-wasm-stackifier",
-                               "Generate WebAssembly stackification cases")));
+                               "Generate WebAssembly stackification cases"),
+                    clEnumValN(GenUnison, "unison",
+                               "Generate machine description for Unison")));
 
   cl::OptionCategory PrintEnumsCat("Options for -print-enums");
   cl::opt<std::string>
@@ -227,6 +231,9 @@ bool LLVMTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
     break;
   case GenRegisterBank:
     EmitRegisterBank(Records, OS);
+    break;
+  case GenUnison:
+    EmitUnisonFile(OS, Records);
     break;
   case GenX86EVEX2VEXTables:
     EmitX86EVEX2VEXTables(Records, OS);
