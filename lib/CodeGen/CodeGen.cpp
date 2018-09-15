@@ -101,6 +101,7 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeTargetPassConfigPass(Registry);
   initializeTwoAddressInstructionPassPass(Registry);
   initializeUnpackMachineBundlesPass(Registry);
+  initializeUnisonMIRPreparePass(Registry);
   initializeUnreachableBlockElimLegacyPassPass(Registry);
   initializeUnreachableMachineBlockElimPass(Registry);
   initializeVirtRegMapPass(Registry);

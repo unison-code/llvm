@@ -79,6 +79,8 @@ static cl::opt<bool> SimplifyMIR(
     "simplify-mir", cl::Hidden,
     cl::desc("Leave out unnecessary information when printing MIR"));
 
+extern cl::opt<bool> UnisonMIR;
+
 namespace {
 
 /// This structure describes how to print out stack object references.
@@ -583,6 +585,17 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
     OS << "align " << MBB.getAlignment();
     HasAttributes = true;
   }
+  if (UnisonMIR) {
+    // In Unison MIR style, the first instruction of each block contains the
+    // block's estimated execution frequency as a metadata operand. The
+    // instruction is emitted, but Unison is expected to disregard it.
+    OS << (HasAttributes ? ", " : " (");
+    auto MO = MBB.instr_begin()->operands_begin();
+    auto MD = MO->getMetadata()->getOperand(1).get();
+    auto MV = cast<ConstantAsMetadata>(MD)->getValue();
+    OS << "freq " << MV->getUniqueInteger();
+    HasAttributes = true;
+  }
   if (HasAttributes)
     OS << ")";
   OS << ":\n";
@@ -603,6 +616,12 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
       if (I != MBB.succ_begin())
         OS << ", ";
       OS << printMBBReference(**I);
+      // The Unison style uses a simpler formatting of the probabilities.
+      if (UnisonMIR && (!SimplifyMIR || !canPredictProbs))
+        OS << '('
+           << MBB.getSuccProbability(I).scale(100)
+           << ')';
+      else // Intentional indention to reduce merge conflicts.
       if (!SimplifyMIR || !canPredictProbs)
         OS << '('
            << format("0x%08" PRIx32, MBB.getSuccProbability(I).getNumerator())
@@ -628,6 +647,35 @@ void MIPrinter::print(const MachineBasicBlock &MBB) {
     }
     OS << "\n";
     HasLineAttributes = true;
+  }
+
+  if (UnisonMIR) {
+    // In the Unison style we print the live out registers. If there are no
+    // registers live-out, the marker still provides the information that the
+    // function actually returns (which is important e.g. to implement calling
+    // conventions).
+    if (MBB.isReturnBlock()) {
+      const TargetRegisterInfo &TRI = *MRI.getTargetRegisterInfo();
+      const MachineInstr &I = MBB.back();
+      OS.indent(2) << "liveouts:";
+      std::string Sep = " ";
+      // We assume that I's implicit uses correspond to the live out registers
+      // while the explicit uses are just common operands (such as the return
+      // address, predicate operands, etc.).
+      for (auto MO : I.uses())
+        if (MO.isReg() && MO.isImplicit()) {
+          OS << Sep << printReg(MO.getReg(), &TRI);
+          Sep = ", ";
+        }
+      OS << "\n";
+      HasLineAttributes = true;
+    }
+    // Print the 'exit' marker for basic blocks that exit but do not return to
+    // their caller function.
+    if (MBB.succ_empty() && (MBB.empty() || !MBB.back().isReturn())) {
+      OS.indent(2) << "exit\n";
+      HasLineAttributes = true;
+    }
   }
 
   if (HasLineAttributes)
@@ -791,6 +839,11 @@ void MIPrinter::print(const MachineInstr &MI, unsigned OpIdx,
   case MachineOperand::MO_IntrinsicID:
   case MachineOperand::MO_Predicate:
   case MachineOperand::MO_BlockAddress: {
+    // Unison expects metadata operands in a raw format.
+    if (UnisonMIR && Op.getType() == MachineOperand::MO_Metadata) {
+      OS << *(Op.getMetadata());
+      break;
+    }
     unsigned TiedOperandIdx = 0;
     if (ShouldPrintRegisterTies && Op.isReg() && Op.isTied() && !Op.isDef())
       TiedOperandIdx = Op.getParent()->findTiedOperandIdx(OpIdx);

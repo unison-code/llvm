@@ -301,6 +301,9 @@ namespace llvm {
   /// StackSlotColoring - This pass performs stack slot coloring.
   extern char &StackSlotColoringID;
 
+  /// UnisonMIRPrepare - This pass prepares for printing Unison-style MIR.
+  extern char &UnisonMIRPrepareID;
+
   /// This pass lays out funclets contiguously.
   extern char &FuncletLayoutID;
 

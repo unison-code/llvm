@@ -155,6 +155,7 @@ add_llvm_library(LLVMCodeGen
   TargetSchedule.cpp
   TargetSubtargetInfo.cpp
   TwoAddressInstructionPass.cpp
+  UnisonMIRPrepare.cpp
   UnreachableBlockElim.cpp
   ValueTypes.cpp
   VirtRegMap.cpp

@@ -390,6 +390,7 @@ void initializeThreadSanitizerPass(PassRegistry&);
 void initializeTwoAddressInstructionPassPass(PassRegistry&);
 void initializeTypeBasedAAWrapperPassPass(PassRegistry&);
 void initializeUnifyFunctionExitNodesPass(PassRegistry&);
+void initializeUnisonMIRPreparePass(PassRegistry&);
 void initializeUnpackMachineBundlesPass(PassRegistry&);
 void initializeUnreachableBlockElimLegacyPassPass(PassRegistry&);
 void initializeUnreachableMachineBlockElimPass(PassRegistry&);
