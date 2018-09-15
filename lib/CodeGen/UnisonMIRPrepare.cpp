@@ -95,7 +95,8 @@ void UnisonMIRPrepare::annotateFrequency(MachineBasicBlock &MBB) {
   int Freq = MBFI->getBlockFreq(&MBB).getFrequency();
   MDNode *MD = createMDTaggedTuple(MF, "unison-block-frequency", Freq);
   auto MI = MBB.instr_begin();
-  BuildMI(MBB, MI, MI->getDebugLoc(), TII->get(TargetOpcode::ANNOTATION_LABEL))
+  DebugLoc DL;
+  BuildMI(MBB, MI, DL, TII->get(TargetOpcode::ANNOTATION_LABEL))
       .addMetadata(MD);
 }
 
