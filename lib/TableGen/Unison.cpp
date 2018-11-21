@@ -380,6 +380,8 @@ bool isLabel(Record *Rec) {
 bool isRegister(Record *Rec) {
   if (Rec == nullptr)
     return false;
+  if (Rec->isSubClassOf("PointerLikeRegClass"))
+    return true;
   for (auto Super : Rec->getSuperClasses())
     // Class names that suggest that the object is a register.
     for (auto Name :
